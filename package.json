@@ -1,0 +1,13 @@
+{
+  "name": "decision-support-system",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix frontend run dev\" \"python backend/app.py\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "python backend/app.py"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  }
+}
