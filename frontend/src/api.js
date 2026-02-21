@@ -2,15 +2,16 @@
 
 async function apiRequest(path, options = {}) {
   const { method = "GET", body, headers } = options;
+  const isForm = body instanceof FormData;
 
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
-      "Content-Type": "application/json",
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(headers ?? {})
     },
     credentials: "include",
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? (isForm ? body : JSON.stringify(body)) : undefined
   });
 
   if (response.status === 204) {
@@ -50,27 +51,65 @@ async function tryRequest(path, options) {
   }
 }
 
+function buildQuery(params = {}) {
+  const filtered = Object.entries(params).filter(([, value]) => {
+    if (value === undefined || value === null) return false;
+    if (value === "" || value === "undefined") return false;
+    return true;
+  });
+  return new URLSearchParams(filtered).toString();
+}
+
+async function fetchBlob(path) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: "include"
+  });
+  if (!response.ok) {
+    throw new Error("Export failed");
+  }
+  return response.blob();
+}
+
 export const api = {
   health: () => apiRequest("/api/health"),
   login: (data) => apiRequest("/api/auth/login", { method: "POST", body: data }),
   register: (data) => apiRequest("/api/auth/register", { method: "POST", body: data }),
   logout: () => apiRequest("/api/auth/logout", { method: "POST" }),
 
-  getCategories: () => apiRequest("/api/categories"),
+  getCategories: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/categories${query ? `?${query}` : ""}`);
+  },
   addCategory: (data) => apiRequest("/api/categories", { method: "POST", body: data }),
+  updateCategory: (id, data) => apiRequest(`/api/categories/${id}`, { method: "PUT", body: data }),
+  deleteCategory: (id) => apiRequest(`/api/categories/${id}`, { method: "DELETE" }),
 
-  getIncome: () => apiRequest("/api/income"),
+  getIncome: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/income${query ? `?${query}` : ""}`);
+  },
   addIncome: (data) => apiRequest("/api/income", { method: "POST", body: data }),
+  updateIncome: (id, data) => apiRequest(`/api/income/${id}`, { method: "PUT", body: data }),
+  deleteIncome: (id) => apiRequest(`/api/income/${id}`, { method: "DELETE" }),
 
-  getExpense: () => apiRequest("/api/expense"),
+  getExpense: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/expense${query ? `?${query}` : ""}`);
+  },
   addExpense: (data) => apiRequest("/api/expense", { method: "POST", body: data }),
+  updateExpense: (id, data) => apiRequest(`/api/expense/${id}`, { method: "PUT", body: data }),
+  deleteExpense: (id) => apiRequest(`/api/expense/${id}`, { method: "DELETE" }),
 
   getSummary: () => apiRequest("/api/analytics/summary"),
   getMonthly: () => apiRequest("/api/analytics/monthly"),
   getCategoriesMonthly: () => apiRequest("/api/analytics/categories/monthly"),
   getBalanceMonthly: () => apiRequest("/api/analytics/balance/monthly"),
   getForecast: () => apiRequest("/api/analytics/forecast"),
+  getForecastSeries: (months) => apiRequest(`/api/analytics/forecast?months=${months}`),
   getDashboard: () => apiRequest("/api/analytics/dashboard"),
+  getKpi: () => apiRequest("/api/analytics/kpi"),
+  getSegments: () => apiRequest("/api/analytics/segments"),
+  getBudgetVsActual: () => apiRequest("/api/analytics/budget-vs-actual"),
 
   getRecommendations: () => apiRequest("/api/recommendations"),
 
@@ -110,7 +149,46 @@ export const api = {
       method: "POST",
       body: { category_id, limit: monthly_limit }
     });
-  }
+  },
+
+  getBudgets: (year) => apiRequest(`/api/budgets${year ? `?year=${year}` : ""}`),
+  saveBudget: (data) => apiRequest("/api/budgets", { method: "POST", body: data }),
+  deleteBudget: (id) => apiRequest(`/api/budgets/${id}`, { method: "DELETE" }),
+
+  getGoals: () => apiRequest("/api/goals"),
+  addGoal: (data) => apiRequest("/api/goals", { method: "POST", body: data }),
+  updateGoal: (id, data) => apiRequest(`/api/goals/${id}`, { method: "PUT", body: data }),
+  deleteGoal: (id) => apiRequest(`/api/goals/${id}`, { method: "DELETE" }),
+  contributeGoal: (id, amount) => apiRequest(`/api/goals/${id}/contribute`, { method: "POST", body: { amount } }),
+
+  getSettings: () => apiRequest("/api/settings"),
+  updateSettings: (data) => apiRequest("/api/settings", { method: "PUT", body: data }),
+
+  getRates: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/exchange-rates${query ? `?${query}` : ""}`);
+  },
+  addRate: (data) => apiRequest("/api/exchange-rates", { method: "POST", body: data }),
+
+  getNotifications: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/notifications${query ? `?${query}` : ""}`);
+  },
+  updateNotification: (id, data) => apiRequest(`/api/notifications/${id}`, { method: "PUT", body: data }),
+
+  getAudit: (params = {}) => {
+    const query = buildQuery(params);
+    return apiRequest(`/api/audit${query ? `?${query}` : ""}`);
+  },
+
+  exportData: (kind, format = "csv") => fetchBlob(`/api/export/${kind}?format=${format}`),
+  importData: (kind, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiRequest(`/api/import/${kind}`, { method: "POST", body: form });
+  },
+
+  seedDemo: () => apiRequest("/api/demo/seed", { method: "POST" })
 };
 
 export function toMoney(value) {

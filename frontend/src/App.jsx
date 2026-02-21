@@ -1,1225 +1,801 @@
-﻿import './App.css'
+import './App.css'
 import { useEffect, useMemo, useState } from 'react'
-import { api, formatDate, toMoney } from './api.js'
+import { useLocation, useNavigate } from 'react-router-dom'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Tooltip,
+  Legend
+} from 'chart.js'
+import { api } from './api.js'
+import { ANALYTICS_TABS, KEY_BY_ROUTE, NAV_GROUPS, QUICK_ACTIONS, ROUTE_BY_KEY } from './config/navigation.js'
+import Modal from './shared/ui/Modal.jsx'
+import Sidebar from './shared/layout/Sidebar.jsx'
+import Topbar from './shared/layout/Topbar.jsx'
+import AlertsStack from './features/alerts/AlertsStack.jsx'
+import AuthPage from './pages/AuthPage.jsx'
+import DashboardPage from './pages/DashboardPage.jsx'
+import CategoriesPage from './pages/CategoriesPage.jsx'
+import IncomePage from './pages/IncomePage.jsx'
+import ExpensePage from './pages/ExpensePage.jsx'
+import LimitsPage from './pages/LimitsPage.jsx'
+import AnalyticsPage from './pages/AnalyticsPage.jsx'
+import DataPage from './pages/DataPage.jsx'
+import SettingsPage from './pages/SettingsPage.jsx'
 
-const NAV_ITEMS = [
-  { key: 'dashboard', label: 'Дашборд' },
-  { key: 'categories', label: 'Категории' },
-  { key: 'income', label: 'Доходы' },
-  { key: 'expense', label: 'Расходы' },
-  { key: 'limits', label: 'Лимиты' },
-  { key: 'analytics', label: 'Аналитика' },
-  { key: 'forecast', label: 'Прогноз' },
-  { key: 'recommendations', label: 'Рекомендации' }
-]
+ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend)
 
-function Modal({ open, title, onClose, children }) {
-  if (!open) return null
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h3>{title}</h3>
-            <p>Заполните поля и подтвердите действие.</p>
-          </div>
-          <button className="ghost" onClick={onClose}>Закрыть</button>
-        </div>
-        <div className="modal-body">{children}</div>
-      </div>
-    </div>
-  )
+function readStoredJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : fallback
+  } catch {
+    return fallback
+  }
 }
 
-function Badge({ tone = 'neutral', children }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>
+function confirmDanger(text) {
+  return window.confirm(text)
 }
 
-function SectionHeader({ title, subtitle, actions }) {
-  return (
-    <div className="section-header">
-      <div>
-        <h2>{title}</h2>
-        <p>{subtitle}</p>
-      </div>
-      <div className="section-actions">{actions}</div>
-    </div>
-  )
-}
-
-function EmptyState({ title, description }) {
-  return (
-    <div className="empty-state">
-      <h4>{title}</h4>
-      <p>{description}</p>
-    </div>
-  )
+async function safeForecastLoad(months) {
+  try {
+    return await api.getForecastSeries(months)
+  } catch (error) {
+    if (error?.status === 400) return { message: error.message, series: null }
+    throw error
+  }
 }
 
 export default function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
   const [active, setActive] = useState('dashboard')
+  const [analyticsTab, setAnalyticsTab] = useState('summary')
+  const [analyticsWindow, setAnalyticsWindow] = useState('6')
   const [authed, setAuthed] = useState(false)
   const [authMode, setAuthMode] = useState('login')
-  const [loading, setLoading] = useState({})
-  const [errors, setErrors] = useState({})
-  const [alerts, setAlerts] = useState([])
-
   const [profile, setProfile] = useState({ username: '', password: '' })
   const [modal, setModal] = useState(null)
+  const [theme, setTheme] = useState('dark')
+  const [alerts, setAlerts] = useState([])
+  const [loading, setLoading] = useState({})
 
+  const [settings, setSettings] = useState({ base_currency: 'RUB', notify_channels: ['in_app'] })
   const [categories, setCategories] = useState([])
+  const [allCategories, setAllCategories] = useState([])
   const [income, setIncome] = useState([])
   const [expense, setExpense] = useState([])
   const [limits, setLimits] = useState([])
+  const [, setAudit] = useState([])
+
+  const [categoriesMeta, setCategoriesMeta] = useState({ total: 0, page: 1, page_size: 10 })
+  const [incomeMeta, setIncomeMeta] = useState({ total: 0, page: 1, page_size: 10 })
+  const [expenseMeta, setExpenseMeta] = useState({ total: 0, page: 1, page_size: 10 })
 
   const [summary, setSummary] = useState(null)
   const [monthly, setMonthly] = useState(null)
   const [categoriesMonthly, setCategoriesMonthly] = useState(null)
-  const [balanceMonthly, setBalanceMonthly] = useState(null)
+  const [budgetVsActual, setBudgetVsActual] = useState(null)
   const [forecast, setForecast] = useState(null)
-  const [dashboard, setDashboard] = useState(null)
   const [recommendations, setRecommendations] = useState(null)
-  const [incomeFilter, setIncomeFilter] = useState({
-    dateFrom: '',
-    dateTo: '',
-    categoryId: '',
-    sortBy: 'date',
-    sortDir: 'desc',
-    page: 1,
-    pageSize: 10
-  })
-  const [expenseFilter, setExpenseFilter] = useState({
-    dateFrom: '',
-    dateTo: '',
-    categoryId: '',
-    sortBy: 'date',
-    sortDir: 'desc',
-    page: 1,
-    pageSize: 10
+  const [kpi, setKpi] = useState(null)
+  const [segments, setSegments] = useState(null)
+  const [dashboardSnapshot, setDashboardSnapshot] = useState(null)
+
+  const [categoryFilter, setCategoryFilter] = useState(() => readStoredJson('dss.categoryFilter', { search: '', type: '', page: 1, pageSize: 10 }))
+  const [incomeFilter, setIncomeFilter] = useState(() => readStoredJson('dss.incomeFilter', { dateFrom: '', dateTo: '', sortBy: 'date', sortDir: 'desc', page: 1, pageSize: 10 }))
+  const [expenseFilter, setExpenseFilter] = useState(() => readStoredJson('dss.expenseFilter', { dateFrom: '', dateTo: '', sortBy: 'date', sortDir: 'desc', page: 1, pageSize: 10 }))
+
+  const categoryMap = useMemo(() => new Map(allCategories.map((item) => [item.id, item])), [allCategories])
+  const incomeCategories = allCategories.filter((item) => item.type === 'income')
+  const expenseCategories = allCategories.filter((item) => item.type === 'expense')
+
+  const refreshCategoryCatalog = () => guard('categoryCatalog', async () => {
+    const data = await api.getCategories({ page: 1, page_size: 500 })
+    setAllCategories(data.items ?? data)
   })
 
-  const categoryMap = useMemo(() => {
-    const map = new Map()
-    categories.forEach((cat) => {
-      map.set(cat.id, cat)
-    })
-    return map
-  }, [categories])
-
-  const incomeCategories = categories.filter((cat) => cat.type === 'income')
-  const expenseCategories = categories.filter((cat) => cat.type === 'expense')
-
-  const setBusy = (key, value) => {
-    setLoading((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const setError = (key, value) => {
-    setErrors((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const addAlert = (message, tone = 'warning') => {
-    setAlerts((prev) => [...prev, { id: Date.now() + Math.random(), message, tone }])
-  }
-
-  const clearAlert = (id) => {
-    setAlerts((prev) => prev.filter((item) => item.id !== id))
-  }
+  const setBusy = (key, value) => setLoading((prev) => ({ ...prev, [key]: value }))
+  const addAlert = (message, tone = 'warning') => setAlerts((prev) => [...prev, { id: Date.now() + Math.random(), message, tone }])
 
   const guard = async (key, action) => {
     setBusy(key, true)
-    setError(key, '')
     try {
       await action()
     } catch (error) {
       if (error.status === 401) {
         setAuthed(false)
         addAlert('Сессия истекла. Войдите снова.', 'danger')
+      } else {
+        addAlert(error.message || 'Ошибка', 'danger')
       }
-      setError(key, error.message)
     } finally {
       setBusy(key, false)
     }
   }
 
   const refreshCategories = () => guard('categories', async () => {
-    const data = await api.getCategories()
-    setCategories(data)
+    const data = await api.getCategories({
+      search: categoryFilter.search || undefined,
+      type: categoryFilter.type || undefined,
+      page: categoryFilter.page,
+      page_size: categoryFilter.pageSize
+    })
+    const items = data.items ?? data
+    const total = data.total ?? (data.items?.length ?? data.length ?? 0)
+    if ((items?.length ?? 0) === 0 && total > 0 && categoryFilter.page > 1) {
+      setCategoryFilter((prev) => ({ ...prev, page: 1 }))
+      return
+    }
+    setCategories(items)
+    setCategoriesMeta({
+      total,
+      page: data.page ?? categoryFilter.page,
+      page_size: data.page_size ?? categoryFilter.pageSize
+    })
   })
 
   const refreshIncome = () => guard('income', async () => {
-    const data = await api.getIncome()
-    setIncome(data)
+    const data = await api.getIncome({
+      date_from: incomeFilter.dateFrom || undefined,
+      date_to: incomeFilter.dateTo || undefined,
+      sort_by: incomeFilter.sortBy,
+      sort_dir: incomeFilter.sortDir,
+      page: incomeFilter.page,
+      page_size: incomeFilter.pageSize
+    })
+    const items = data.items ?? data
+    const total = data.total ?? (data.items?.length ?? data.length ?? 0)
+    if ((items?.length ?? 0) === 0 && total > 0 && incomeFilter.page > 1) {
+      setIncomeFilter((prev) => ({ ...prev, page: 1 }))
+      return
+    }
+    setIncome(items)
+    setIncomeMeta({
+      total,
+      page: data.page ?? incomeFilter.page,
+      page_size: data.page_size ?? incomeFilter.pageSize
+    })
   })
 
   const refreshExpense = () => guard('expense', async () => {
-    const data = await api.getExpense()
-    setExpense(data)
+    const data = await api.getExpense({
+      date_from: expenseFilter.dateFrom || undefined,
+      date_to: expenseFilter.dateTo || undefined,
+      sort_by: expenseFilter.sortBy,
+      sort_dir: expenseFilter.sortDir,
+      page: expenseFilter.page,
+      page_size: expenseFilter.pageSize
+    })
+    const items = data.items ?? data
+    const total = data.total ?? (data.items?.length ?? data.length ?? 0)
+    if ((items?.length ?? 0) === 0 && total > 0 && expenseFilter.page > 1) {
+      setExpenseFilter((prev) => ({ ...prev, page: 1 }))
+      return
+    }
+    setExpense(items)
+    setExpenseMeta({
+      total,
+      page: data.page ?? expenseFilter.page,
+      page_size: data.page_size ?? expenseFilter.pageSize
+    })
   })
 
-  const refreshLimits = () => guard('limits', async () => {
-    const data = await api.getLimits()
-    setLimits(data)
+  const refreshCore = () => guard('core', async () => {
+    const [limitsData, summaryData, monthlyData, categoriesMonthlyData, budgetData, recommendationsData, forecastData, kpiData, segmentsData, dashboardData] = await Promise.all([
+      api.getLimits(),
+      api.getSummary(),
+      api.getMonthly(),
+      api.getCategoriesMonthly(),
+      api.getBudgetVsActual(),
+      api.getRecommendations(),
+      safeForecastLoad(6),
+      api.getKpi(),
+      api.getSegments(),
+      api.getDashboard()
+    ])
+    setLimits(limitsData)
+    setSummary(summaryData)
+    setMonthly(monthlyData)
+    setCategoriesMonthly(categoriesMonthlyData)
+    setBudgetVsActual(budgetData)
+    setRecommendations(recommendationsData)
+    setForecast(forecastData)
+    setKpi(kpiData)
+    setSegments(segmentsData)
+    setDashboardSnapshot(dashboardData)
   })
 
-  const refreshSummary = () => guard('summary', async () => {
-    const data = await api.getSummary()
-    setSummary(data)
+  const refreshSettings = () => guard('settings', async () => {
+    const value = await api.getSettings()
+    setSettings({ base_currency: value.base_currency, notify_channels: value.notify_channels ?? ['in_app'] })
   })
 
-  const refreshMonthly = () => guard('monthly', async () => {
-    const data = await api.getMonthly()
-    setMonthly(data)
+  const refreshAudit = () => guard('audit', async () => {
+    const data = await api.getAudit({ page: 1, page_size: 10 })
+    setAudit(data || [])
   })
 
-  const refreshCategoriesMonthly = () => guard('categoriesMonthly', async () => {
-    const data = await api.getCategoriesMonthly()
-    setCategoriesMonthly(data)
-  })
-
-  const refreshBalanceMonthly = () => guard('balanceMonthly', async () => {
-    const data = await api.getBalanceMonthly()
-    setBalanceMonthly(data)
-  })
-
-  const refreshForecast = () => guard('forecast', async () => {
-    const data = await api.getForecast()
-    setForecast(data)
-  })
-
-  const refreshDashboard = () => guard('dashboard', async () => {
-    const data = await api.getDashboard()
-    setDashboard(data)
-  })
-
-  const refreshRecommendations = () => guard('recommendations', async () => {
-    const data = await api.getRecommendations()
-    setRecommendations(data)
-  })
-
-  const refreshAllLists = async () => {
+  const refreshAll = async () => {
     await Promise.all([
       refreshCategories(),
+      refreshCategoryCatalog(),
       refreshIncome(),
       refreshExpense(),
-      refreshLimits()
+      refreshCore(),
+      refreshSettings(),
+      refreshAudit()
     ])
   }
 
   useEffect(() => {
-    const probe = async () => {
-      try {
-        const health = await api.health()
-        setAuthed(Boolean(health?.authenticated))
-      } catch (error) {
-        setAuthed(false)
-      }
-    }
+    const saved = localStorage.getItem('theme')
+    const next = saved || 'dark'
+    setTheme(next)
+    document.documentElement.dataset.theme = next
+  }, [])
 
-    probe()
+  useEffect(() => {
+    const key = KEY_BY_ROUTE[location.pathname]
+    if (key) {
+      setActive(key)
+      return
+    }
+    if (location.pathname === '/' || location.pathname === '') {
+      setActive('dashboard')
+      return
+    }
+    if (authed) navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+  }, [location.pathname, authed, navigate])
+
+  useEffect(() => localStorage.setItem('dss.categoryFilter', JSON.stringify(categoryFilter)), [categoryFilter])
+  useEffect(() => localStorage.setItem('dss.incomeFilter', JSON.stringify(incomeFilter)), [incomeFilter])
+  useEffect(() => localStorage.setItem('dss.expenseFilter', JSON.stringify(expenseFilter)), [expenseFilter])
+
+  useEffect(() => {
+    api.health().then((h) => setAuthed(Boolean(h?.authenticated))).catch(() => setAuthed(false))
   }, [])
 
   useEffect(() => {
     if (!authed) return
+    refreshAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed])
 
-    refreshAllLists()
-    refreshSummary()
-    refreshMonthly()
-    refreshCategoriesMonthly()
-    refreshBalanceMonthly()
-    refreshForecast()
-    refreshDashboard()
-    refreshRecommendations()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (authed) refreshCategories() }, [authed, categoryFilter])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (authed) refreshIncome() }, [authed, incomeFilter])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (authed) refreshExpense() }, [authed, expenseFilter])
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (!authed) return
+      if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return
+      if (event.key.toLowerCase() === 'i') setModal({ type: 'create', entity: 'income' })
+      if (event.key.toLowerCase() === 'e') setModal({ type: 'create', entity: 'expense' })
+      if (event.key.toLowerCase() === 'c') setModal({ type: 'create', entity: 'category' })
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [authed])
 
   const handleAuthSubmit = async (event) => {
     event.preventDefault()
-    setError('auth', '')
-
-    try {
-      if (authMode === 'register') {
-        await api.register(profile)
-        addAlert('Аккаунт создан. Теперь войдите.', 'success')
-        setAuthMode('login')
-      } else {
-        await api.login(profile)
-        const health = await api.health()
-        if (!health?.authenticated) {
-          setError('auth', 'Не удалось создать сессию. Проверьте настройки прокси или CORS.')
-          return
-        }
-        setAuthed(true)
-        addAlert('Вы вошли в систему.', 'success')
-      }
-    } catch (error) {
-      setError('auth', error.message)
+    if (authMode === 'register') {
+      await api.register(profile)
+      setAuthMode('login')
+      addAlert('Аккаунт создан', 'success')
+      return
     }
+    await api.login(profile)
+    setAuthed(true)
+    navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+    addAlert('Вы вошли в систему', 'success')
   }
 
   const handleLogout = async () => {
     await guard('auth', async () => {
       await api.logout()
       setAuthed(false)
+      navigate('/', { replace: true })
     })
   }
 
-  const handleCreateCategory = async (event) => {
+  const handleCreate = async (event) => {
     event.preventDefault()
-    const payload = {
-      name: event.target.name.value.trim(),
-      type: event.target.type.value
+    const entity = event.target.entity.value
+
+    if (entity === 'category') {
+      await guard('categories', async () => {
+        await api.addCategory({
+          name: event.target.name.value.trim(),
+          type: event.target.type.value,
+          color: event.target.color.value || undefined,
+          icon: event.target.icon.value || undefined
+        })
+        await refreshCategories()
+        await refreshCategoryCatalog()
+        await refreshAudit()
+        setModal(null)
+        addAlert('Категория добавлена', 'success')
+      })
+      return
     }
 
+    const payload = {
+      amount: Number(event.target.amount.value),
+      category_id: Number(event.target.category_id.value),
+      date: event.target.date.value || undefined,
+      currency: event.target.currency.value || undefined,
+      note: event.target.note.value || undefined
+    }
+
+    const createFn = entity === 'income' ? api.addIncome : api.addExpense
+    const refreshFn = entity === 'income' ? refreshIncome : refreshExpense
+
+    await guard(entity, async () => {
+      await createFn(payload)
+      await refreshFn()
+      await refreshCore()
+      await refreshAudit()
+      setModal(null)
+      addAlert(entity === 'income' ? 'Доход добавлен' : 'Расход добавлен', 'success')
+    })
+  }
+
+  const handleUpdateCategory = async (event) => {
+    event.preventDefault()
+    const id = Number(event.target.category_id.value)
     await guard('categories', async () => {
-      await api.addCategory(payload)
+      await api.updateCategory(id, {
+        name: event.target.name.value.trim(),
+        type: event.target.type.value,
+        color: event.target.color.value || undefined,
+        icon: event.target.icon.value || undefined
+      })
       await refreshCategories()
+      await refreshCategoryCatalog()
+      await refreshAudit()
       setModal(null)
+      addAlert('Категория обновлена', 'success')
     })
   }
 
-  const handleCreateIncome = async (event) => {
+  const handleUpdateIncome = async (event) => {
     event.preventDefault()
-    const payload = {
-      amount: Number(event.target.amount.value),
-      category_id: Number(event.target.category_id.value),
-      date: event.target.date.value || undefined
-    }
-
+    const id = Number(event.target.income_id.value)
     await guard('income', async () => {
-      await api.addIncome(payload)
+      await api.updateIncome(id, {
+        amount: Number(event.target.amount.value),
+        category_id: Number(event.target.category_id.value),
+        date: event.target.date.value || undefined,
+        currency: event.target.currency.value || undefined,
+        note: event.target.note.value || undefined
+      })
       await refreshIncome()
+      await refreshCore()
+      await refreshAudit()
       setModal(null)
+      addAlert('Доход обновлен', 'success')
     })
   }
 
-  const handleCreateExpense = async (event) => {
+  const handleUpdateExpense = async (event) => {
     event.preventDefault()
-    const payload = {
-      amount: Number(event.target.amount.value),
-      category_id: Number(event.target.category_id.value),
-      date: event.target.date.value || undefined
-    }
-
+    const id = Number(event.target.expense_id.value)
     await guard('expense', async () => {
-      await api.addExpense(payload)
+      await api.updateExpense(id, {
+        amount: Number(event.target.amount.value),
+        category_id: Number(event.target.category_id.value),
+        date: event.target.date.value || undefined,
+        currency: event.target.currency.value || undefined,
+        note: event.target.note.value || undefined
+      })
       await refreshExpense()
+      await refreshCore()
+      await refreshAudit()
       setModal(null)
+      addAlert('Расход обновлен', 'success')
     })
   }
 
-  const handleSaveLimit = async (event) => {
+  const saveLimit = async (event) => {
     event.preventDefault()
-    const payload = {
-      category_id: Number(event.target.category_id.value),
-      monthly_limit: Number(event.target.monthly_limit.value)
-    }
-
     await guard('limits', async () => {
-      await api.saveLimit(payload)
-      await refreshLimits()
+      await api.saveLimit({
+        category_id: Number(event.target.category_id.value),
+        monthly_limit: Number(event.target.monthly_limit.value)
+      })
+      await refreshCore()
+      await refreshAudit()
       setModal(null)
+      addAlert('Лимит сохранен', 'success')
     })
   }
 
-  const normalizeDate = (value) => {
-    if (!value) return null
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return null
-    return date
+  const saveSettingsInline = async (payload) => {
+    await guard('settings', async () => {
+      await api.updateSettings({
+        base_currency: payload.base_currency,
+        widgets: {},
+        notify_channels: settings.notify_channels
+      })
+      await refreshSettings()
+      addAlert('Настройки обновлены', 'success')
+    })
   }
 
-  const applyFilters = (items, filter) => {
-    const from = normalizeDate(filter.dateFrom)
-    const to = normalizeDate(filter.dateTo)
-    const categoryId = filter.categoryId ? Number(filter.categoryId) : null
-
-    const filtered = items.filter((item) => {
-      const itemDate = normalizeDate(item.date)
-      if (from && itemDate && itemDate < from) return false
-      if (to && itemDate && itemDate > to) return false
-      if (categoryId && Number(item.category_id) !== categoryId) return false
-      return true
+  const seedDemo = async () => {
+    await guard('demo', async () => {
+      await api.seedDemo()
+      await refreshAll()
+      addAlert('Демо-данные загружены', 'success')
     })
+  }
 
-    const sorted = [...filtered].sort((a, b) => {
-      const dir = filter.sortDir === 'asc' ? 1 : -1
-      switch (filter.sortBy) {
-        case 'amount':
-          return dir * (Number(a.amount) - Number(b.amount))
-        case 'category': {
-          const aName = categoryMap.get(a.category_id)?.name ?? ''
-          const bName = categoryMap.get(b.category_id)?.name ?? ''
-          return dir * aName.localeCompare(bName, 'ru')
-        }
-        case 'date':
-        default: {
-          const aDate = normalizeDate(a.date) ?? new Date(0)
-          const bDate = normalizeDate(b.date) ?? new Date(0)
-          return dir * (aDate - bDate)
-        }
-      }
+  const importCsv = async (kind, file) => {
+    await guard('import', async () => {
+      await api.importData(kind, file)
+      await refreshAll()
+      addAlert('Импорт завершен', 'success')
     })
+  }
 
-    const total = sorted.length
-    const pageSize = Number(filter.pageSize) || 10
-    const pages = Math.max(1, Math.ceil(total / pageSize))
-    const page = Math.min(filter.page, pages)
-    const start = (page - 1) * pageSize
-    const end = start + pageSize
+  const exportCsv = async (kind) => {
+    await guard('export', async () => {
+      const blob = await api.exportData(kind, 'csv')
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${kind}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      addAlert('Экспорт завершен', 'success')
+    })
+  }
 
-    return {
-      rows: sorted.slice(start, end),
-      total,
-      pages,
-      page,
-      pageSize
+  const removeCategory = (id) => guard('categories', async () => {
+    if (!confirmDanger('Удалить категорию?')) return
+    await api.deleteCategory(id)
+    await refreshCategories()
+    await refreshCategoryCatalog()
+    await refreshAudit()
+    addAlert('Категория удалена', 'success')
+  })
+
+  const removeIncome = (id) => guard('income', async () => {
+    if (!confirmDanger('Удалить доход?')) return
+    await api.deleteIncome(id)
+    await refreshIncome()
+    await refreshCore()
+    await refreshAudit()
+    addAlert('Доход удален', 'success')
+  })
+
+  const removeExpense = (id) => guard('expense', async () => {
+    if (!confirmDanger('Удалить расход?')) return
+    await api.deleteExpense(id)
+    await refreshExpense()
+    await refreshCore()
+    await refreshAudit()
+    addAlert('Расход удален', 'success')
+  })
+
+  const latestMonthKey = useMemo(() => {
+    const keys = Object.keys(categoriesMonthly || {})
+    return keys.length ? keys.sort().at(-1) : null
+  }, [categoriesMonthly])
+
+  const summaryValues = {
+    income: Number(kpi?.total_income ?? summary?.total_income ?? 0),
+    expense: Number(kpi?.total_expense ?? summary?.total_expense ?? 0),
+    balance: Number(kpi?.savings ?? summary?.profit ?? 0)
+  }
+
+  const savingsRate = summaryValues.income > 0 ? (summaryValues.balance / summaryValues.income) * 100 : 0
+  const burnRate = Number((kpi?.burn_rate ?? (summaryValues.income ? summaryValues.expense / summaryValues.income : 0)) * 100)
+
+  const monthMap = useMemo(() => {
+    const map = {}
+    ;(monthly?.income || []).forEach((row) => {
+      const key = `${row.year}-${String(row.month).padStart(2, '0')}`
+      map[key] = { ...(map[key] || {}), income: Number(row.total || 0) }
+    })
+    ;(monthly?.expense || []).forEach((row) => {
+      const key = `${row.year}-${String(row.month).padStart(2, '0')}`
+      map[key] = { ...(map[key] || {}), expense: Number(row.total || 0) }
+    })
+    return map
+  }, [monthly])
+
+  const monthLabels = Object.keys(monthMap).sort()
+  const periodCount = analyticsWindow === 'all' ? monthLabels.length : Number(analyticsWindow)
+  const scopedMonthLabels = periodCount > 0 ? monthLabels.slice(-periodCount) : monthLabels
+
+  const scopedCategorySpend = useMemo(() => {
+    const keys = new Set(scopedMonthLabels)
+    const aggregate = {}
+    Object.entries(categoriesMonthly || {}).forEach(([month, categoriesByMonth]) => {
+      if (!keys.has(month)) return
+      Object.entries(categoriesByMonth || {}).forEach(([name, amount]) => {
+        aggregate[name] = (aggregate[name] || 0) + Number(amount || 0)
+      })
+    })
+    return aggregate
+  }, [categoriesMonthly, scopedMonthLabels])
+
+  const scopedBudgetVsActual = useMemo(() => {
+    if (!Array.isArray(budgetVsActual)) return []
+    const keys = new Set(scopedMonthLabels)
+    return budgetVsActual.filter((row) => keys.has(row.month))
+  }, [budgetVsActual, scopedMonthLabels])
+
+  const latestCategorySpend = categoriesMonthly?.[latestMonthKey] || {}
+
+  const limitsProgress = limits.map((item) => {
+    const name = categoryMap.get(item.category_id)?.name || `ID ${item.category_id}`
+    const spent = Number(latestCategorySpend[name] || 0)
+    const limit = Number(item.monthly_limit || 0)
+    const pct = limit > 0 ? (spent / limit) * 100 : 0
+    return { ...item, name, spent, limit, pct }
+  }).sort((a, b) => b.pct - a.pct)
+
+  const atRiskLimits = limitsProgress.filter((item) => item.pct >= 80).length
+  const systemAlerts = [
+    ...(summaryValues.balance < 0 ? ['Отрицательный баланс.'] : []),
+    ...limitsProgress.filter((item) => item.pct > 100).map((item) => `Лимит превышен: ${item.name}`)
+  ]
+
+  const remainingToMonthEnd = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    const current = monthMap[currentMonth]
+    if (!current) return 0
+    return Number((current.income || 0) - (current.expense || 0))
+  }, [monthMap])
+
+  const recentTransactions = useMemo(() => {
+    const list = [
+      ...income.map((item) => ({ ...item, type: 'income' })),
+      ...expense.map((item) => ({ ...item, type: 'expense' }))
+    ]
+    return list.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8)
+  }, [income, expense])
+
+  const monthStats = useMemo(() => {
+    const keys = Object.keys(monthMap).sort()
+    const current = keys.at(-1)
+    const previous = keys.at(-2)
+    if (!current || !previous) return { income: 0, expense: 0, balance: 0 }
+    const cIncome = monthMap[current]?.income || 0
+    const pIncome = monthMap[previous]?.income || 0
+    const cExpense = monthMap[current]?.expense || 0
+    const pExpense = monthMap[previous]?.expense || 0
+    const cBalance = cIncome - cExpense
+    const pBalance = pIncome - pExpense
+    const ratio = (curr, prev) => (prev ? ((curr - prev) / prev) * 100 : 0)
+    return { income: ratio(cIncome, pIncome), expense: ratio(cExpense, pExpense), balance: ratio(cBalance, pBalance) }
+  }, [monthMap])
+
+  const aiInsights = useMemo(() => {
+    const list = []
+    if (savingsRate >= 20) list.push({ tone: 'success', text: 'Отличный месяц для накоплений' })
+    const limitAlert = limitsProgress.find((item) => item.pct > 100)
+    if (limitAlert) list.push({ tone: 'danger', text: `Вы превысили лимит по категории "${limitAlert.name}"` })
+    if (savingsRate < 20 && summaryValues.income > 0) {
+      const deficit = Math.max(0, 20 - savingsRate)
+      list.push({ tone: 'warning', text: `Стоит сократить расходы на ${deficit.toFixed(1)}% для цели по savings rate` })
     }
-  }
+    return list
+  }, [limitsProgress, savingsRate, summaryValues.income])
 
-  const renderTableControls = (filter, setFilter, categoriesList) => (
-    <div className="table-controls">
-      <label className="field compact">
-        <span>С даты</span>
-        <input
-          type="date"
-          value={filter.dateFrom}
-          onChange={(event) => setFilter({ ...filter, dateFrom: event.target.value, page: 1 })}
-        />
-      </label>
-      <label className="field compact">
-        <span>По дату</span>
-        <input
-          type="date"
-          value={filter.dateTo}
-          onChange={(event) => setFilter({ ...filter, dateTo: event.target.value, page: 1 })}
-        />
-      </label>
-      <label className="field compact">
-        <span>Категория</span>
-        <select
-          value={filter.categoryId}
-          onChange={(event) => setFilter({ ...filter, categoryId: event.target.value, page: 1 })}
-        >
-          <option value="">Все</option>
-          {categoriesList.map((cat) => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
-          ))}
-        </select>
-      </label>
-      <label className="field compact">
-        <span>Сортировка</span>
-        <select
-          value={`${filter.sortBy}:${filter.sortDir}`}
-          onChange={(event) => {
-            const [sortBy, sortDir] = event.target.value.split(':')
-            setFilter({ ...filter, sortBy, sortDir, page: 1 })
-          }}
-        >
-          <option value="date:desc">Дата ↓</option>
-          <option value="date:asc">Дата ↑</option>
-          <option value="amount:desc">Сумма ↓</option>
-          <option value="amount:asc">Сумма ↑</option>
-          <option value="category:asc">Категория A→Я</option>
-          <option value="category:desc">Категория Я→A</option>
-        </select>
-      </label>
-      <label className="field compact">
-        <span>На странице</span>
-        <select
-          value={filter.pageSize}
-          onChange={(event) => setFilter({ ...filter, pageSize: Number(event.target.value), page: 1 })}
-        >
-          <option value={5}>5</option>
-          <option value={10}>10</option>
-          <option value={20}>20</option>
-          <option value={50}>50</option>
-        </select>
-      </label>
-      <button
-        className="ghost"
-        type="button"
-        onClick={() => setFilter({
-          ...filter,
-          dateFrom: '',
-          dateTo: '',
-          categoryId: '',
-          sortBy: 'date',
-          sortDir: 'desc',
-          page: 1
-        })}
-      >
-        Сбросить
-      </button>
-    </div>
-  )
-
-  const renderPagination = (meta, setFilter) => (
-    <div className="pagination">
-      <button
-        className="ghost"
-        type="button"
-        onClick={() => setFilter((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
-        disabled={meta.page <= 1}
-      >
-        Назад
-      </button>
-      <span>Стр. {meta.page} из {meta.pages}</span>
-      <button
-        className="ghost"
-        type="button"
-        onClick={() => setFilter((prev) => ({ ...prev, page: Math.min(meta.pages, prev.page + 1) }))}
-        disabled={meta.page >= meta.pages}
-      >
-        Вперед
-      </button>
-    </div>
-  )
-
-  const renderAuth = () => (
-    <div className="auth-layout">
-      <div className="auth-panel">
-        <div className="brand">
-          <div className="logo-mark">DSS</div>
-          <div>
-            <h1>Decision Support System</h1>
-            <p>Единый интерфейс управления доходами, расходами и аналитикой.</p>
-          </div>
-        </div>
-
-        <form className="card" onSubmit={handleAuthSubmit}>
-          <h2>{authMode === 'login' ? 'Вход' : 'Регистрация'}</h2>
-          <p>Авторизация использует сессионные куки Flask-Login.</p>
-          <label className="field">
-            <span>Логин</span>
-            <input
-              type="text"
-              name="username"
-              value={profile.username}
-              onChange={(event) => setProfile({ ...profile, username: event.target.value })}
-              required
-            />
-          </label>
-          <label className="field">
-            <span>Пароль</span>
-            <input
-              type="password"
-              name="password"
-              value={profile.password}
-              onChange={(event) => setProfile({ ...profile, password: event.target.value })}
-              required
-            />
-          </label>
-
-          {errors.auth && <p className="form-error">{errors.auth}</p>}
-
-          <button className="primary" type="submit" disabled={loading.auth}>
-            {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
-          </button>
-
-          <button
-            className="ghost"
-            type="button"
-            onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-          >
-            {authMode === 'login'
-              ? 'Нет аккаунта? Регистрация'
-              : 'Уже есть аккаунт? Войти'}
-          </button>
-        </form>
-      </div>
-    </div>
-  )
-
-  const renderTopbar = () => (
-    <header className="topbar">
-      <div>
-        <h1>Decision Support System</h1>
-        <p>Полное покрытие всех backend-эндпоинтов.</p>
-      </div>
-      <div className="topbar-actions">
-        <button className="ghost" onClick={refreshAllLists}>Обновить данные</button>
-        <button className="primary" onClick={handleLogout}>Выйти</button>
-      </div>
-    </header>
-  )
-
-  const renderSidebar = () => (
-    <aside className="sidebar">
-      <div className="sidebar-header">
-        <div className="logo-mark">DSS</div>
-        <div>
-          <strong>Навигация</strong>
-          <p>Выберите раздел</p>
-        </div>
-      </div>
-      <nav>
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.key}
-            className={active === item.key ? 'nav-item active' : 'nav-item'}
-            onClick={() => setActive(item.key)}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-      <div className="sidebar-footer">
-        <p>Бэкенд работает на Flask + PostgreSQL.</p>
-      </div>
-    </aside>
-  )
-
-  const renderDashboard = () => (
-    <section>
-      <SectionHeader
-        title="Дашборд"
-        subtitle="Общая картина по ключевым метрикам"
-        actions={<button className="ghost" onClick={refreshDashboard}>Обновить</button>}
+  const contentByKey = {
+    dashboard: (
+      <DashboardPage
+        summaryValues={summaryValues}
+        savingsRate={savingsRate}
+        burnRate={burnRate}
+        trends={monthStats}
+        onRefresh={refreshCore}
+        monthLabels={scopedMonthLabels}
+        monthMap={monthMap}
+        latestCategorySpend={scopedCategorySpend}
+        limitsProgress={limitsProgress}
+        systemAlerts={systemAlerts}
+        insights={aiInsights}
+        dashboardSnapshot={dashboardSnapshot}
+        recentTransactions={recentTransactions}
+        categoryMap={categoryMap}
+        segments={segments}
+        loading={loading.core}
+        atRiskLimits={atRiskLimits}
+        remainingToMonthEnd={remainingToMonthEnd}
       />
-
-      {errors.dashboard && <p className="form-error">{errors.dashboard}</p>}
-      {!dashboard && !errors.dashboard && (
-        <EmptyState
-          title="Данные не загружены"
-          description="Нажмите «Обновить», чтобы получить информацию." 
-        />
-      )}
-
-      {dashboard && (
-        <div className="grid-cards">
-          <div className="card">
-            <h3>Сводка</h3>
-            <div className="metric">
-              <span>Доходы</span>
-              <strong>{toMoney(dashboard.summary?.income)}</strong>
-            </div>
-            <div className="metric">
-              <span>Расходы</span>
-              <strong>{toMoney(dashboard.summary?.expense)}</strong>
-            </div>
-            <div className="metric">
-              <span>Баланс</span>
-              <strong>{toMoney(dashboard.summary?.balance)}</strong>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>Записи</h3>
-            <div className="metric">
-              <span>Доходов</span>
-              <strong>{dashboard.counts?.income_records ?? '—'}</strong>
-            </div>
-            <div className="metric">
-              <span>Расходов</span>
-              <strong>{dashboard.counts?.expense_records ?? '—'}</strong>
-            </div>
-          </div>
-
-          <div className="card">
-            <h3>Расходы по категориям</h3>
-            {dashboard.expenses_by_category && Object.keys(dashboard.expenses_by_category).length > 0 ? (
-              <ul className="list">
-                {Object.entries(dashboard.expenses_by_category).map(([name, value]) => (
-                  <li key={name}>
-                    <span>{name}</span>
-                    <strong>{toMoney(value)}</strong>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>Нет данных по категориям.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderCategories = () => (
-    <section>
-      <SectionHeader
-        title="Категории"
-        subtitle="Создавайте и управляйте справочником категорий"
-        actions={
-          <>
-            <button className="ghost" onClick={refreshCategories}>Обновить</button>
-            <button className="primary" onClick={() => setModal('category')}>Добавить</button>
-          </>
-        }
+    ),
+    categories: (
+      <CategoriesPage
+        loading={loading.categories}
+        filter={categoryFilter}
+        setFilter={setCategoryFilter}
+        categories={categories}
+        meta={categoriesMeta}
+        onOpenCreate={() => setModal({ type: 'create', entity: 'category' })}
+        onOpenEdit={(item) => setModal({ type: 'category-edit', data: item })}
+        onRemove={removeCategory}
       />
-
-      <div className="info-banner">
-        В backend нет эндпоинтов для редактирования или удаления категорий.
-      </div>
-
-      {errors.categories && <p className="form-error">{errors.categories}</p>}
-      {categories.length === 0 ? (
-        <EmptyState
-          title="Категорий пока нет"
-          description="Добавьте категорию дохода или расхода." 
-        />
-      ) : (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Название</th>
-                <th>Тип</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((cat) => (
-                <tr key={cat.id}>
-                  <td>{cat.id}</td>
-                  <td>{cat.name}</td>
-                  <td>{cat.type === 'income' ? 'Доход' : 'Расход'}</td>
-                  <td>
-                    <button className="ghost" disabled>Редактировать</button>
-                    <button className="ghost" disabled>Удалить</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="hint">В backend нет эндпоинтов для редактирования или удаления категорий.</p>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderIncome = () => (
-    <section>
-      <SectionHeader
-        title="Доходы"
-        subtitle="Учёт поступлений и истории"
-        actions={
-          <>
-            <button className="ghost" onClick={refreshIncome}>Обновить</button>
-            <button className="primary" onClick={() => setModal('income')}>Добавить</button>
-          </>
-        }
+    ),
+    income: (
+      <IncomePage
+        loading={loading.income}
+        filter={incomeFilter}
+        setFilter={setIncomeFilter}
+        income={income}
+        meta={incomeMeta}
+        categoryMap={categoryMap}
+        onOpenCreate={() => setModal({ type: 'create', entity: 'income' })}
+        onOpenEdit={(item) => setModal({ type: 'income-edit', data: item })}
+        onRemove={removeIncome}
       />
-
-      {errors.income && <p className="form-error">{errors.income}</p>}
-      {income.length === 0 ? (
-        <EmptyState
-          title="Доходов пока нет"
-          description="Добавьте первую запись дохода." 
-        />
-      ) : (
-        <div className="card">
-          {renderTableControls(incomeFilter, setIncomeFilter, incomeCategories)}
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Сумма</th>
-                <th>Дата</th>
-                <th>Категория</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {applyFilters(income, incomeFilter).rows.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{toMoney(item.amount)}</td>
-                  <td>{formatDate(item.date)}</td>
-                  <td>{categoryMap.get(item.category_id)?.name ?? '—'}</td>
-                  <td>
-                    <button className="ghost" disabled>Редактировать</button>
-                    <button className="ghost" disabled>Удалить</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {renderPagination(applyFilters(income, incomeFilter), setIncomeFilter)}
-          <p className="hint">Backend предоставляет только добавление и список доходов.</p>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderExpense = () => (
-    <section>
-      <SectionHeader
-        title="Расходы"
-        subtitle="Учёт трат и история операций"
-        actions={
-          <>
-            <button className="ghost" onClick={refreshExpense}>Обновить</button>
-            <button className="primary" onClick={() => setModal('expense')}>Добавить</button>
-          </>
-        }
+    ),
+    expense: (
+      <ExpensePage
+        loading={loading.expense}
+        filter={expenseFilter}
+        setFilter={setExpenseFilter}
+        expense={expense}
+        meta={expenseMeta}
+        categoryMap={categoryMap}
+        onOpenCreate={() => setModal({ type: 'create', entity: 'expense' })}
+        onOpenEdit={(item) => setModal({ type: 'expense-edit', data: item })}
+        onRemove={removeExpense}
       />
-
-      {errors.expense && <p className="form-error">{errors.expense}</p>}
-      {expense.length === 0 ? (
-        <EmptyState
-          title="Расходов пока нет"
-          description="Добавьте первую запись расхода." 
-        />
-      ) : (
-        <div className="card">
-          {renderTableControls(expenseFilter, setExpenseFilter, expenseCategories)}
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Сумма</th>
-                <th>Дата</th>
-                <th>Категория</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {applyFilters(expense, expenseFilter).rows.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.id}</td>
-                  <td>{toMoney(item.amount)}</td>
-                  <td>{formatDate(item.date)}</td>
-                  <td>{categoryMap.get(item.category_id)?.name ?? '—'}</td>
-                  <td>
-                    <button className="ghost" disabled>Редактировать</button>
-                    <button className="ghost" disabled>Удалить</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {renderPagination(applyFilters(expense, expenseFilter), setExpenseFilter)}
-          <p className="hint">Backend предоставляет только добавление и список расходов.</p>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderLimits = () => (
-    <section>
-      <SectionHeader
-        title="Лимиты"
-        subtitle="Ограничения бюджета по категориям"
-        actions={
-          <>
-            <button className="ghost" onClick={refreshLimits}>Обновить</button>
-            <button className="primary" onClick={() => setModal('limit')}>Установить лимит</button>
-          </>
-        }
+    ),
+    limits: <LimitsPage limitsProgress={limitsProgress} onOpenLimit={() => setModal({ type: 'limit' })} />,
+    analytics: (
+      <AnalyticsPage
+        tabs={ANALYTICS_TABS}
+        activeTab={analyticsTab}
+        setActiveTab={setAnalyticsTab}
+        analyticsWindow={analyticsWindow}
+        setAnalyticsWindow={setAnalyticsWindow}
+        onRefresh={refreshCore}
+        summaryValues={summaryValues}
+        savingsRate={savingsRate}
+        burnRate={burnRate}
+        monthLabels={scopedMonthLabels}
+        monthMap={monthMap}
+        latestCategorySpend={scopedCategorySpend}
+        budgetVsActual={scopedBudgetVsActual}
+        forecast={forecast}
+        recommendations={recommendations}
       />
-
-      {errors.limits && <p className="form-error">{errors.limits}</p>}
-      {limits.length === 0 ? (
-        <EmptyState
-          title="Лимиты не настроены"
-          description="Добавьте лимиты, чтобы контролировать траты." 
-        />
-      ) : (
-        <div className="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Категория</th>
-                <th>Лимит</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-              {limits.map((item) => (
-                <tr key={item.category_id}>
-                  <td>{categoryMap.get(item.category_id)?.name ?? `Категория #${item.category_id}`}</td>
-                  <td>{toMoney(item.monthly_limit)}</td>
-                  <td>
-                    <button className="ghost" onClick={() => setModal('limit')}>Изменить</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderAnalytics = () => (
-    <section>
-      <SectionHeader
-        title="Аналитика"
-        subtitle="Сводка, динамика и баланс по месяцам"
-        actions={
-          <>
-            <button className="ghost" onClick={() => {
-              refreshSummary()
-              refreshMonthly()
-              refreshCategoriesMonthly()
-              refreshBalanceMonthly()
-            }}>Обновить</button>
-          </>
-        }
+    ),
+    data: <DataPage onSeedDemo={seedDemo} onExportCsv={exportCsv} onImportCsv={importCsv} />,
+    settings: (
+      <SettingsPage
+        settings={settings}
+        theme={theme}
+        onThemeChange={(next) => {
+          setTheme(next)
+          localStorage.setItem('theme', next)
+          document.documentElement.dataset.theme = next
+        }}
+        onSave={saveSettingsInline}
       />
-
-      {errors.summary && <p className="form-error">{errors.summary}</p>}
-      {summary && (
-        <div className="grid-cards">
-          <div className="card">
-            <h3>Сводка</h3>
-            <div className="metric">
-              <span>Доходы</span>
-              <strong>{toMoney(summary.total_income)}</strong>
-            </div>
-            <div className="metric">
-              <span>Расходы</span>
-              <strong>{toMoney(summary.total_expense)}</strong>
-            </div>
-            <div className="metric">
-              <span>Профит</span>
-              <strong>{toMoney(summary.profit)}</strong>
-            </div>
-            <Badge tone={summary.status === 'plus' ? 'success' : 'danger'}>
-              {summary.status === 'plus' ? 'Плюс' : 'Минус'}
-            </Badge>
-          </div>
-
-          <div className="card">
-            <h3>Доходы и расходы по месяцам</h3>
-            {monthly ? (
-              <div className="list">
-                {monthly.income.map((row) => (
-                  <div key={`i-${row.year}-${row.month}`} className="bar-row">
-                    <span>{row.year}-{String(row.month).padStart(2, '0')}</span>
-                    <div className="bar">
-                      <div style={{ width: `${Math.min(100, row.total)}%` }} />
-                    </div>
-                    <strong>{toMoney(row.total)}</strong>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>Нет данных.</p>
-            )}
-          </div>
-
-          <div className="card">
-            <h3>Баланс по месяцам</h3>
-            {balanceMonthly ? (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Месяц</th>
-                    <th>Доходы</th>
-                    <th>Расходы</th>
-                    <th>Профит</th>
-                    <th>Статус</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {balanceMonthly.map((row) => (
-                    <tr key={row.month}>
-                      <td>{row.month}</td>
-                      <td>{toMoney(row.income)}</td>
-                      <td>{toMoney(row.expense)}</td>
-                      <td>{toMoney(row.profit)}</td>
-                      <td>
-                        <Badge tone={row.status === 'plus' ? 'success' : row.status === 'risk' ? 'warning' : 'danger'}>
-                          {row.status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p>Нет данных.</p>
-            )}
-          </div>
-
-          <div className="card">
-            <h3>Категории по месяцам</h3>
-            {categoriesMonthly ? (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Месяц</th>
-                    <th>Категории</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(categoriesMonthly).map(([month, values]) => (
-                    <tr key={month}>
-                      <td>{month}</td>
-                      <td>
-                        <ul className="list">
-                          {Object.entries(values).map(([name, value]) => (
-                            <li key={name}>
-                              <span>{name}</span>
-                              <strong>{toMoney(value)}</strong>
-                            </li>
-                          ))}
-                        </ul>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p>Нет данных.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  )
-
-  const renderForecast = () => (
-    <section>
-      <SectionHeader
-        title="Прогноз"
-        subtitle="Модель LinearRegression и тренды"
-        actions={<button className="ghost" onClick={refreshForecast}>Обновить</button>}
-      />
-
-      {errors.forecast && <p className="form-error">{errors.forecast}</p>}
-      {forecast ? (
-        <div className="grid-cards">
-          <div className="card">
-            <h3>Следующий месяц</h3>
-            <div className="metric">
-              <span>Прогноз дохода</span>
-              <strong>{toMoney(forecast.predicted_income)}</strong>
-            </div>
-            <div className="metric">
-              <span>Прогноз расхода</span>
-              <strong>{toMoney(forecast.predicted_expense)}</strong>
-            </div>
-            <div className="metric">
-              <span>Прогноз прибыли</span>
-              <strong>{toMoney(forecast.predicted_profit)}</strong>
-            </div>
-          </div>
-          <div className="card">
-            <h3>Тренды и уверенность</h3>
-            <div className="metric">
-              <span>Тренд доходов</span>
-              <strong>{forecast.trend?.income}</strong>
-            </div>
-            <div className="metric">
-              <span>Тренд расходов</span>
-              <strong>{forecast.trend?.expense}</strong>
-            </div>
-            <Badge tone={forecast.confidence === 'high' ? 'success' : forecast.confidence === 'medium' ? 'warning' : 'danger'}>
-              Уверенность: {forecast.confidence}
-            </Badge>
-          </div>
-        </div>
-      ) : (
-        <EmptyState
-          title="Нет прогноза"
-          description="Нужно минимум 2 месяца данных для построения прогноза." 
-        />
-      )}
-    </section>
-  )
-
-  const renderRecommendations = () => (
-    <section>
-      <SectionHeader
-        title="Рекомендации"
-        subtitle="Уведомления и советы на основе баланса"
-        actions={<button className="ghost" onClick={refreshRecommendations}>Обновить</button>}
-      />
-
-      {errors.recommendations && <p className="form-error">{errors.recommendations}</p>}
-      {recommendations ? (
-        <div className="grid-cards">
-          <div className="card">
-            <h3>Предупреждения</h3>
-            {recommendations.alerts?.length ? (
-              <ul className="list">
-                {recommendations.alerts.map((item, index) => (
-                  <li key={`${item}-${index}`}>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>Нет предупреждений.</p>
-            )}
-          </div>
-          <div className="card">
-            <h3>Советы</h3>
-            {recommendations.recommendations?.length ? (
-              <ul className="list">
-                {recommendations.recommendations.map((item, index) => (
-                  <li key={`${item}-${index}`}>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>Нет рекомендаций.</p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <EmptyState
-          title="Рекомендации не загружены"
-          description="Нажмите «Обновить», чтобы получить данные." 
-        />
-      )}
-    </section>
-  )
-
-  const renderContent = () => {
-    switch (active) {
-      case 'dashboard':
-        return renderDashboard()
-      case 'categories':
-        return renderCategories()
-      case 'income':
-        return renderIncome()
-      case 'expense':
-        return renderExpense()
-      case 'limits':
-        return renderLimits()
-      case 'analytics':
-        return renderAnalytics()
-      case 'forecast':
-        return renderForecast()
-      case 'recommendations':
-        return renderRecommendations()
-      default:
-        return null
-    }
+    )
   }
 
   if (!authed) {
-    return renderAuth()
+    return <AuthPage authMode={authMode} setAuthMode={setAuthMode} profile={profile} setProfile={setProfile} onSubmit={handleAuthSubmit} />
   }
+
+  const createEntity = modal?.entity || 'income'
+  const createCategories = createEntity === 'income' ? incomeCategories : expenseCategories
+  const pageTitle = NAV_GROUPS.flatMap((group) => group.items).find((item) => item.key === active)?.label || 'Панель'
 
   return (
     <div className="layout">
-      {renderSidebar()}
+      <Sidebar navGroups={NAV_GROUPS} active={active} onNavigate={(key) => navigate(ROUTE_BY_KEY[key])} />
       <div className="main">
-        {renderTopbar()}
-        <div className="alerts">
-          {alerts.map((alert) => (
-            <div key={alert.id} className={`alert alert-${alert.tone}`}>
-              <span>{alert.message}</span>
-              <button onClick={() => clearAlert(alert.id)}>Закрыть</button>
-            </div>
-          ))}
-        </div>
-        <div className="content">
-          {renderContent()}
-        </div>
+        <Topbar
+          title={pageTitle}
+          quickActions={QUICK_ACTIONS}
+          onQuickAction={setModal}
+          theme={theme}
+          onToggleTheme={() => {
+            const next = theme === 'light' ? 'dark' : 'light'
+            setTheme(next)
+            localStorage.setItem('theme', next)
+            document.documentElement.dataset.theme = next
+          }}
+          onLogout={handleLogout}
+        />
+        <AlertsStack alerts={alerts} onClose={(id) => setAlerts((prev) => prev.filter((item) => item.id !== id))} />
+        <div className="content">{contentByKey[active] || null}</div>
       </div>
 
-      <Modal
-        open={modal === 'category'}
-        title="Новая категория"
-        onClose={() => setModal(null)}
-      >
-        <form className="modal-form" onSubmit={handleCreateCategory}>
-          <label className="field">
-            <span>Название</span>
-            <input name="name" type="text" required />
-          </label>
+      <Modal open={modal?.type === 'create'} title="Добавить" onClose={() => setModal(null)}>
+        <form className="modal-form" onSubmit={handleCreate}>
           <label className="field">
             <span>Тип</span>
-            <select name="type" defaultValue="expense">
+            <select name="entity" value={createEntity} onChange={(event) => setModal((prev) => ({ ...prev, entity: event.target.value }))}>
               <option value="income">Доход</option>
               <option value="expense">Расход</option>
+              <option value="category">Категория</option>
             </select>
           </label>
+          {createEntity === 'category' ? (
+            <>
+              <label className="field"><span>Название</span><input name="name" required /></label>
+              <label className="field"><span>Тип</span><select name="type"><option value="income">Доход</option><option value="expense">Расход</option></select></label>
+              <label className="field"><span>Цвет</span><input name="color" /></label>
+              <label className="field"><span>Иконка</span><input name="icon" /></label>
+            </>
+          ) : (
+            <>
+              <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" required /></label>
+              <label className="field"><span>Категория</span><select name="category_id" required>{createCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label className="field"><span>Дата</span><input name="date" type="date" /></label>
+              <label className="field"><span>Валюта</span><input name="currency" defaultValue={settings.base_currency} /></label>
+              <label className="field"><span>Комментарий</span><input name="note" /></label>
+            </>
+          )}
           <button className="primary" type="submit">Сохранить</button>
         </form>
       </Modal>
 
-      <Modal
-        open={modal === 'income'}
-        title="Добавить доход"
-        onClose={() => setModal(null)}
-      >
-        <form className="modal-form" onSubmit={handleCreateIncome}>
-          <label className="field">
-            <span>Сумма</span>
-            <input name="amount" type="number" step="0.01" min="0" required />
-          </label>
-          <label className="field">
-            <span>Категория</span>
-            <select name="category_id" required>
-              {incomeCategories.length === 0 && (
-                <option value="">Нет категорий дохода</option>
-              )}
-              {incomeCategories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Дата</span>
-            <input name="date" type="date" />
-          </label>
-          <button className="primary" type="submit" disabled={incomeCategories.length === 0}>Сохранить</button>
+      <Modal open={modal?.type === 'category-edit'} title="Редактировать категорию" onClose={() => setModal(null)}>
+        <form className="modal-form" onSubmit={handleUpdateCategory}>
+          <input type="hidden" name="category_id" value={modal?.data?.id || ''} />
+          <label className="field"><span>Название</span><input name="name" required defaultValue={modal?.data?.name || ''} /></label>
+          <label className="field"><span>Тип</span><select name="type" defaultValue={modal?.data?.type || 'expense'}><option value="income">Доход</option><option value="expense">Расход</option></select></label>
+          <label className="field"><span>Цвет</span><input name="color" defaultValue={modal?.data?.color || ''} /></label>
+          <label className="field"><span>Иконка</span><input name="icon" defaultValue={modal?.data?.icon || ''} /></label>
+          <button className="primary" type="submit">Сохранить</button>
         </form>
       </Modal>
 
-      <Modal
-        open={modal === 'expense'}
-        title="Добавить расход"
-        onClose={() => setModal(null)}
-      >
-        <form className="modal-form" onSubmit={handleCreateExpense}>
-          <label className="field">
-            <span>Сумма</span>
-            <input name="amount" type="number" step="0.01" min="0" required />
-          </label>
-          <label className="field">
-            <span>Категория</span>
-            <select name="category_id" required>
-              {expenseCategories.length === 0 && (
-                <option value="">Нет категорий расхода</option>
-              )}
-              {expenseCategories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Дата</span>
-            <input name="date" type="date" />
-          </label>
-          <button className="primary" type="submit" disabled={expenseCategories.length === 0}>Сохранить</button>
+      <Modal open={modal?.type === 'income-edit'} title="Редактировать доход" onClose={() => setModal(null)}>
+        <form className="modal-form" onSubmit={handleUpdateIncome}>
+          <input type="hidden" name="income_id" value={modal?.data?.id || ''} />
+          <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" defaultValue={modal?.data?.amount || ''} required /></label>
+          <label className="field"><span>Категория</span><select name="category_id" defaultValue={modal?.data?.category_id || ''}>{incomeCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} /></label>
+          <label className="field"><span>Валюта</span><input name="currency" defaultValue={modal?.data?.currency || settings.base_currency} /></label>
+          <label className="field"><span>Комментарий</span><input name="note" defaultValue={modal?.data?.note || ''} /></label>
+          <button className="primary" type="submit">Сохранить</button>
         </form>
       </Modal>
 
-      <Modal
-        open={modal === 'limit'}
-        title="Установить лимит"
-        onClose={() => setModal(null)}
-      >
-        <form className="modal-form" onSubmit={handleSaveLimit}>
-          <label className="field">
-            <span>Категория</span>
-            <select name="category_id" required>
-              {expenseCategories.length === 0 && (
-                <option value="">Нет категорий расхода</option>
-              )}
-              {expenseCategories.map((cat) => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Лимит на месяц</span>
-            <input name="monthly_limit" type="number" step="0.01" min="0" required />
-          </label>
-          <button className="primary" type="submit" disabled={expenseCategories.length === 0}>Сохранить</button>
+      <Modal open={modal?.type === 'expense-edit'} title="Редактировать расход" onClose={() => setModal(null)}>
+        <form className="modal-form" onSubmit={handleUpdateExpense}>
+          <input type="hidden" name="expense_id" value={modal?.data?.id || ''} />
+          <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" defaultValue={modal?.data?.amount || ''} required /></label>
+          <label className="field"><span>Категория</span><select name="category_id" defaultValue={modal?.data?.category_id || ''}>{expenseCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} /></label>
+          <label className="field"><span>Валюта</span><input name="currency" defaultValue={modal?.data?.currency || settings.base_currency} /></label>
+          <label className="field"><span>Комментарий</span><input name="note" defaultValue={modal?.data?.note || ''} /></label>
+          <button className="primary" type="submit">Сохранить</button>
+        </form>
+      </Modal>
+
+      <Modal open={modal?.type === 'limit'} title="Лимит" onClose={() => setModal(null)}>
+        <form className="modal-form" onSubmit={saveLimit}>
+          <label className="field"><span>Категория</span><select name="category_id" required>{expenseCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field"><span>Лимит на месяц</span><input name="monthly_limit" type="number" step="0.01" min="0" required /></label>
+          <button className="primary" type="submit">Сохранить</button>
         </form>
       </Modal>
     </div>
   )
 }
-

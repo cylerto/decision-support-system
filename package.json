@@ -3,9 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "concurrently \"npm --prefix frontend run dev\" \"python backend/app.py\"",
+    "dev": "concurrently \"npm --prefix frontend run dev\" \"python -m backend.app\"",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "python backend/app.py"
+    "dev:backend": "python -m backend.app",
+    "check:backend": "python -m backend.smoke_check",
+    "check:frontend": "npm --prefix frontend run build",
+    "check:all": "npm run check:backend && npm run check:frontend"
   },
   "devDependencies": {
     "concurrently": "^9.2.0"
