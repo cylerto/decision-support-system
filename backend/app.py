@@ -22,6 +22,7 @@ from backend.routes.notifications import notifications_bp
 from backend.routes.audit import audit_bp
 from backend.routes.import_export import import_export_bp
 from backend.routes.demo import demo_bp
+from backend.routes.directories import directories_bp
 
 
 def create_app() -> Flask:
@@ -53,6 +54,7 @@ def create_app() -> Flask:
     app.register_blueprint(audit_bp)
     app.register_blueprint(import_export_bp)
     app.register_blueprint(demo_bp)
+    app.register_blueprint(directories_bp)
 
     if app.config.get("AUTO_CREATE_DB", False):
         with app.app_context():

@@ -84,6 +84,11 @@ export const api = {
   updateCategory: (id, data) => apiRequest(`/api/categories/${id}`, { method: "PUT", body: data }),
   deleteCategory: (id) => apiRequest(`/api/categories/${id}`, { method: "DELETE" }),
 
+  getDirectories: (kind) => apiRequest(`/api/directories/${kind}`),
+  addDirectory: (kind, data) => apiRequest(`/api/directories/${kind}`, { method: "POST", body: data }),
+  updateDirectory: (kind, id, data) => apiRequest(`/api/directories/${kind}/${id}`, { method: "PUT", body: data }),
+  deleteDirectory: (kind, id) => apiRequest(`/api/directories/${kind}/${id}`, { method: "DELETE" }),
+
   getIncome: (params = {}) => {
     const query = buildQuery(params);
     return apiRequest(`/api/income${query ? `?${query}` : ""}`);

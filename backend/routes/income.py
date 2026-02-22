@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from datetime import datetime
+from sqlalchemy import and_
+from sqlalchemy.orm import aliased
 
 from ..extensions import db
-from ..models import Income, TransactionMeta
-from ..utils import create_notification, ensure_user_settings, get_exchange_rate, log_action, table_exists
+from ..models import Counterparty, Department, Income, OperationDimension, Project, TransactionMeta
+from ..utils import ensure_user_settings, get_exchange_rate, log_action
 
 income_bp = Blueprint("income_bp", __name__, url_prefix="/api/income")
 
@@ -20,6 +22,9 @@ def add_income():
     currency = data.get("currency")
     fx_rate = data.get("fx_rate")
     note = data.get("note")
+    department_id = data.get("department_id")
+    project_id = data.get("project_id")
+    counterparty_id = data.get("counterparty_id")
 
     if not amount:
         return jsonify({"message": "Amount is required"}), 400
@@ -39,6 +44,19 @@ def add_income():
         if fx_rate and currency != settings.base_currency:
             amount = float(amount) * float(fx_rate)
 
+    if department_id:
+        exists = Department.query.filter_by(id=department_id, user_id=current_user.id).first()
+        if not exists:
+            return jsonify({"message": "Department not found"}), 400
+    if project_id:
+        exists = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
+        if not exists:
+            return jsonify({"message": "Project not found"}), 400
+    if counterparty_id:
+        exists = Counterparty.query.filter_by(id=counterparty_id, user_id=current_user.id).first()
+        if not exists:
+            return jsonify({"message": "Counterparty not found"}), 400
+
     income = Income(
         amount=amount,
         date=date,
@@ -49,7 +67,7 @@ def add_income():
     db.session.add(income)
     db.session.commit()
 
-    if currency and table_exists("transaction_meta"):
+    if currency:
         meta = TransactionMeta(
             transaction_type="income",
             transaction_id=income.id,
@@ -60,6 +78,17 @@ def add_income():
         )
         db.session.add(meta)
 
+    if any([department_id, project_id, counterparty_id]):
+        dim = OperationDimension(
+            user_id=current_user.id,
+            transaction_type="income",
+            transaction_id=income.id,
+            department_id=department_id or None,
+            project_id=project_id or None,
+            counterparty_id=counterparty_id or None,
+        )
+        db.session.add(dim)
+
     log_action("create", "income", income.id, data)
     db.session.commit()
 
@@ -69,11 +98,21 @@ def add_income():
 @income_bp.route("", methods=["GET"])
 @login_required
 def get_incomes():
-    query = Income.query.filter_by(user_id=current_user.id)
+    dim = aliased(OperationDimension)
+    query = Income.query.filter_by(user_id=current_user.id).outerjoin(
+        dim,
+        and_(
+            dim.user_id == current_user.id,
+            dim.transaction_type == "income",
+            dim.transaction_id == Income.id,
+        ),
+    )
 
     date_from = request.args.get("date_from")
     date_to = request.args.get("date_to")
     category_id = request.args.get("category_id", type=int)
+    department_id = request.args.get("department_id", type=int)
+    project_id = request.args.get("project_id", type=int)
     sort_by = request.args.get("sort_by", "date")
     sort_dir = request.args.get("sort_dir", "desc")
     page = request.args.get("page", 1, type=int)
@@ -89,12 +128,20 @@ def get_incomes():
         query = query.filter(Income.date <= datetime.strptime(date_to, "%Y-%m-%d").date())
     if category_id:
         query = query.filter(Income.category_id == category_id)
+    if department_id:
+        query = query.filter(dim.department_id == department_id)
+    if project_id:
+        query = query.filter(dim.project_id == project_id)
 
     sort_column = Income.date
     if sort_by == "amount":
         sort_column = Income.amount
     elif sort_by == "category":
         sort_column = Income.category_id
+    elif sort_by == "department":
+        sort_column = dim.department_id
+    elif sort_by == "project":
+        sort_column = dim.project_id
 
     if sort_dir == "asc":
         query = query.order_by(sort_column.asc())
@@ -111,8 +158,15 @@ def get_incomes():
             metas = {m.transaction_id: m for m in meta_rows}
         except Exception:
             metas = {}
+        dims = {
+            d.transaction_id: d
+            for d in OperationDimension.query.filter_by(user_id=current_user.id, transaction_type="income").filter(
+                OperationDimension.transaction_id.in_([i.id for i in items])
+            ).all()
+        }
     else:
         metas = {}
+        dims = {}
 
     return jsonify({
         "items": [
@@ -124,6 +178,9 @@ def get_incomes():
                 "currency": metas.get(i.id).currency if metas.get(i.id) else None,
                 "fx_rate": metas.get(i.id).fx_rate if metas.get(i.id) else None,
                 "note": metas.get(i.id).note if metas.get(i.id) else None,
+                "department_id": dims.get(i.id).department_id if dims.get(i.id) else None,
+                "project_id": dims.get(i.id).project_id if dims.get(i.id) else None,
+                "counterparty_id": dims.get(i.id).counterparty_id if dims.get(i.id) else None,
             } for i in items
         ],
         "total": total,
@@ -150,12 +207,14 @@ def update_income(income_id):
     currency = data.get("currency")
     fx_rate = data.get("fx_rate")
     note = data.get("note")
+    department_id = data.get("department_id")
+    project_id = data.get("project_id")
+    counterparty_id = data.get("counterparty_id")
 
     settings = ensure_user_settings()
     meta = None
-    if table_exists("transaction_meta"):
-        meta = TransactionMeta.query.filter_by(transaction_type="income", transaction_id=income.id).first()
-    if (currency or fx_rate or note) and table_exists("transaction_meta"):
+    meta = TransactionMeta.query.filter_by(transaction_type="income", transaction_id=income.id).first()
+    if currency or fx_rate or note:
         if not meta:
             meta = TransactionMeta(transaction_type="income", transaction_id=income.id, currency=settings.base_currency)
             db.session.add(meta)
@@ -174,6 +233,38 @@ def update_income(income_id):
             if meta.currency and meta.currency != settings.base_currency and meta.fx_rate:
                 income.amount = float(data["amount"]) * float(meta.fx_rate)
 
+    if any(k in data for k in ("department_id", "project_id", "counterparty_id")):
+        dim = OperationDimension.query.filter_by(
+            user_id=current_user.id,
+            transaction_type="income",
+            transaction_id=income.id
+        ).first()
+        if not dim:
+            dim = OperationDimension(
+                user_id=current_user.id,
+                transaction_type="income",
+                transaction_id=income.id
+            )
+            db.session.add(dim)
+        if "department_id" in data:
+            if data["department_id"]:
+                exists = Department.query.filter_by(id=data["department_id"], user_id=current_user.id).first()
+                if not exists:
+                    return jsonify({"message": "Department not found"}), 400
+            dim.department_id = data["department_id"] or None
+        if "project_id" in data:
+            if data["project_id"]:
+                exists = Project.query.filter_by(id=data["project_id"], user_id=current_user.id).first()
+                if not exists:
+                    return jsonify({"message": "Project not found"}), 400
+            dim.project_id = data["project_id"] or None
+        if "counterparty_id" in data:
+            if data["counterparty_id"]:
+                exists = Counterparty.query.filter_by(id=data["counterparty_id"], user_id=current_user.id).first()
+                if not exists:
+                    return jsonify({"message": "Counterparty not found"}), 400
+            dim.counterparty_id = data["counterparty_id"] or None
+
     log_action("update", "income", income.id, data)
     db.session.commit()
     return jsonify({"message": "Income updated"})
@@ -187,6 +278,7 @@ def delete_income(income_id):
         return jsonify({"message": "Income not found"}), 404
 
     TransactionMeta.query.filter_by(transaction_type="income", transaction_id=income.id).delete()
+    OperationDimension.query.filter_by(transaction_type="income", transaction_id=income.id).delete()
     db.session.delete(income)
     log_action("delete", "income", income.id)
     db.session.commit()

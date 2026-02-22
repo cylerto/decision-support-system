@@ -159,3 +159,55 @@ class AuditLog(db.Model):
     entity_id = db.Column(db.Integer, nullable=True)
     data = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Department(db.Model):
+    __tablename__ = "departments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "name", name="uix_department_user_name"),
+    )
+
+
+class Project(db.Model):
+    __tablename__ = "projects"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "name", name="uix_project_user_name"),
+    )
+
+
+class Counterparty(db.Model):
+    __tablename__ = "counterparties"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    name = db.Column(db.String(160), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "name", name="uix_counterparty_user_name"),
+    )
+
+
+class OperationDimension(db.Model):
+    __tablename__ = "operation_dimensions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    transaction_type = db.Column(db.String(10), nullable=False)  # income / expense
+    transaction_id = db.Column(db.Integer, nullable=False)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=True)
+    counterparty_id = db.Column(db.Integer, db.ForeignKey("counterparties.id"), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("transaction_type", "transaction_id", name="uix_operation_dimension"),
+    )

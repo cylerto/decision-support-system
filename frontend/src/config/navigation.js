@@ -1,27 +1,52 @@
 export const NAV_GROUPS = [
   {
-    title: 'Финансы',
-    icon: 'FIN',
+    title: 'Дашборд',
+    icon: 'DB',
+    items: [{ key: 'dashboard', label: 'Главная панель', icon: 'dashboard' }]
+  },
+  {
+    title: 'Операции',
+    icon: 'OP',
+    items: [{ key: 'operations', label: 'Выручка / Затраты', icon: 'operations' }]
+  },
+  {
+    title: 'Структура',
+    icon: 'ST',
     items: [
-      { key: 'categories', label: 'Категории', icon: 'categories' },
-      { key: 'income', label: 'Доходы', icon: 'income' },
-      { key: 'expense', label: 'Расходы', icon: 'expense' },
-      { key: 'limits', label: 'Лимиты', icon: 'limit' }
+      { key: 'categories', label: 'Статьи P&L', icon: 'categories' },
+      { key: 'departments', label: 'Подразделения', icon: 'departments' },
+      { key: 'projects', label: 'Проекты', icon: 'projects' },
+      { key: 'counterparties', label: 'Контрагенты', icon: 'counterparties' }
     ]
   },
   {
+    title: 'Бюджет и контроль',
+    icon: 'BG',
+    items: [{ key: 'budget_limits', label: 'Бюджеты / Лимиты', icon: 'limit' }]
+  },
+  {
     title: 'Аналитика',
-    icon: 'ANA',
+    icon: 'AN',
     items: [
-      { key: 'dashboard', label: 'Дашборд', icon: 'dashboard' },
-      { key: 'analytics', label: 'Аналитика', icon: 'analytics' }
+      { key: 'analytics_monthly', label: 'Динамика по месяцам', icon: 'trend' },
+      { key: 'analytics_structure', label: 'Структура затрат', icon: 'structure' },
+      { key: 'analytics_budget', label: 'Бюджет vs факт', icon: 'budget' }
+    ]
+  },
+  {
+    title: 'Решения',
+    icon: 'AI',
+    items: [
+      { key: 'forecast', label: 'Прогноз', icon: 'forecast' },
+      { key: 'recommendations', label: 'Рекомендации', icon: 'recommendations' }
     ]
   },
   {
     title: 'Система',
     icon: 'SYS',
     items: [
-      { key: 'data', label: 'Импорт/Экспорт', icon: 'data' },
+      { key: 'data', label: 'Импорт / Экспорт', icon: 'data' },
+      { key: 'history', label: 'История действий', icon: 'history' },
       { key: 'settings', label: 'Настройки', icon: 'settings' }
     ]
   }
@@ -29,28 +54,37 @@ export const NAV_GROUPS = [
 
 export const ANALYTICS_TABS = [
   { key: 'summary', label: 'Сводка' },
-  { key: 'monthly', label: 'Месяцы' },
-  { key: 'categories', label: 'Категории' },
-  { key: 'budget', label: 'План vs факт' },
+  { key: 'monthly', label: 'Динамика по месяцам' },
+  { key: 'categories', label: 'Структура затрат' },
+  { key: 'budget', label: 'Бюджет vs факт' },
   { key: 'forecast', label: 'Прогноз' },
   { key: 'recommendations', label: 'Рекомендации' }
 ]
 
 export const QUICK_ACTIONS = [
-  { key: 'income', label: '+ Доход', action: { type: 'create', entity: 'income' } },
-  { key: 'expense', label: '+ Расход', action: { type: 'create', entity: 'expense' } },
-  { key: 'category', label: '+ Категория', action: { type: 'create', entity: 'category' } },
+  { key: 'income', label: '+ Выручка', action: { type: 'create', entity: 'income' } },
+  { key: 'expense', label: '+ Затрата', action: { type: 'create', entity: 'expense' } },
+  { key: 'category', label: '+ Статья P&L', action: { type: 'create', entity: 'category' } },
   { key: 'limit', label: '+ Лимит', action: { type: 'limit' } }
 ]
 
 export const ROUTE_BY_KEY = {
   dashboard: '/dashboard',
-  categories: '/categories',
+  operations: '/operations',
   income: '/income',
   expense: '/expense',
-  limits: '/limits',
-  analytics: '/analytics',
+  categories: '/categories',
+  departments: '/departments',
+  projects: '/projects',
+  counterparties: '/counterparties',
+  budget_limits: '/budget-limits',
+  analytics_monthly: '/analytics/monthly',
+  analytics_structure: '/analytics/structure',
+  analytics_budget: '/analytics/budget',
+  forecast: '/forecast',
+  recommendations: '/recommendations',
   data: '/data',
+  history: '/history',
   settings: '/settings'
 }
 

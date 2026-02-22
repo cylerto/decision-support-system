@@ -2,12 +2,22 @@ import Logo from '../brand/Logo.jsx'
 
 const ICON = {
   dashboard: 'DB',
+  operations: 'OP',
   income: 'IN',
   expense: 'EX',
-  categories: 'CT',
+  categories: 'PL',
+  departments: 'DP',
+  projects: 'PR',
+  counterparties: 'CT',
   limit: 'LM',
   analytics: 'AN',
-  data: 'DT',
+  trend: 'TR',
+  structure: 'ST',
+  budget: 'BV',
+  forecast: 'FC',
+  recommendations: 'RC',
+  data: 'IM',
+  history: 'HS',
   settings: 'ST'
 }
 
