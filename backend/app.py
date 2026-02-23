@@ -1,12 +1,19 @@
-import os
+﻿import os
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_login import current_user, login_required
 from sqlalchemy import text
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
 from backend.extensions import db, login_manager
-from backend.models import Category, Expense, Income, CategoryLimit
+from backend.finance_engine import get_dashboard
+from backend.models import CategoryLimit
+from backend.recommendation_engine import build_recommendations
 from backend.routes.auth import auth_bp
 from backend.routes.category import category_bp
 from backend.routes.expense import expense_bp
@@ -15,14 +22,13 @@ from backend.routes.analytics import analytics_bp
 from backend.routes.forecast import forecast_bp
 from backend.routes.limits import limits_bp
 from backend.routes.budgets import budgets_bp
-from backend.routes.goals import goals_bp
 from backend.routes.settings import settings_bp
-from backend.routes.exchange_rates import rates_bp
-from backend.routes.notifications import notifications_bp
 from backend.routes.audit import audit_bp
 from backend.routes.import_export import import_export_bp
-from backend.routes.demo import demo_bp
 from backend.routes.directories import directories_bp
+
+if load_dotenv is not None:
+    load_dotenv(Path(__file__).resolve().parent.parent / '.env')
 
 
 def create_app() -> Flask:
@@ -47,13 +53,9 @@ def create_app() -> Flask:
     app.register_blueprint(forecast_bp)
     app.register_blueprint(limits_bp, url_prefix="/api/limits")
     app.register_blueprint(budgets_bp)
-    app.register_blueprint(goals_bp)
     app.register_blueprint(settings_bp)
-    app.register_blueprint(rates_bp)
-    app.register_blueprint(notifications_bp)
     app.register_blueprint(audit_bp)
     app.register_blueprint(import_export_bp)
-    app.register_blueprint(demo_bp)
     app.register_blueprint(directories_bp)
 
     if app.config.get("AUTO_CREATE_DB", False):
@@ -133,85 +135,12 @@ def register_legacy_routes(app: Flask) -> None:
     @app.route("/api/analytics/dashboard")
     @login_required
     def dashboard():
-        incomes = Income.query.filter_by(user_id=current_user.id).all()
-        expenses = Expense.query.filter_by(user_id=current_user.id).all()
-
-        total_income = sum(item.amount for item in incomes)
-        total_expense = sum(item.amount for item in expenses)
-        balance = total_income - total_expense
-
-        by_category = {}
-        for item in expenses:
-            category = Category.query.get(item.category_id)
-            name = category.name if category else "Unknown"
-            by_category[name] = by_category.get(name, 0) + item.amount
-
-        return jsonify({
-            "summary": {
-                "income": total_income,
-                "expense": total_expense,
-                "balance": balance,
-            },
-            "expenses_by_category": by_category,
-            "counts": {
-                "income_records": len(incomes),
-                "expense_records": len(expenses),
-            },
-        })
+        return jsonify(get_dashboard(current_user.id))
 
     @app.route("/api/recommendations")
     @login_required
     def recommendations():
-        expenses = Expense.query.filter_by(user_id=current_user.id).all()
-        incomes = Income.query.filter_by(user_id=current_user.id).all()
-
-        total_income = sum(item.amount for item in incomes)
-        total_expense = sum(item.amount for item in expenses)
-
-        alerts = []
-        tips = []
-        detailed = []
-
-        if total_income == 0:
-            alerts.append("??? ???????")
-            detailed.append({
-                "type": "alert",
-                "priority": "high",
-                "message": "??? ???????",
-                "reason": "?????????? ?????????? ???????????? ??? ???????? ???????????.",
-            })
-        else:
-            ratio = total_expense / total_income
-            if ratio > 0.7:
-                alerts.append("??????? ????????? 70% ??????")
-                tips.append("????????????? ????????? ???????")
-                detailed.append({
-                    "type": "alert",
-                    "priority": "high",
-                    "message": "??????? ????????? 70% ??????",
-                    "reason": f"??????? ???? ????????: {round(ratio * 100, 1)}%.",
-                })
-                detailed.append({
-                    "type": "tip",
-                    "priority": "medium",
-                    "message": "????????????? ????????? ???????",
-                    "reason": "???????? ???? ??????? ?????????? ?????.",
-                })
-
-        if total_income - total_expense > 0:
-            tips.append("??????? ????? ??? ??????????")
-            detailed.append({
-                "type": "tip",
-                "priority": "low",
-                "message": "??????? ????? ??? ??????????",
-                "reason": "?????? ????????????? ? ????? ??????????? ????? ??????.",
-            })
-
-        return jsonify({
-            "alerts": alerts,
-            "recommendations": tips,
-            "detailed": detailed,
-        })
+        return jsonify(build_recommendations(current_user.id))
 
 
 app = create_app()
@@ -219,3 +148,7 @@ app = create_app()
 
 if __name__ == "__main__":
     app.run(debug=True)
+
+
+
+

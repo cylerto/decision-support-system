@@ -1,4 +1,6 @@
-﻿const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+let formatCurrency = "RUB";
+let formatTimezone = "UTC";
 
 async function apiRequest(path, options = {}) {
   const { method = "GET", body, headers } = options;
@@ -115,6 +117,11 @@ export const api = {
   getKpi: () => apiRequest("/api/analytics/kpi"),
   getSegments: () => apiRequest("/api/analytics/segments"),
   getBudgetVsActual: () => apiRequest("/api/analytics/budget-vs-actual"),
+  getBaselineMonthly: () => apiRequest("/api/analytics/baseline/monthly"),
+  getFormatSettings: () => apiRequest("/api/analytics/format"),
+  runScenario: (data) => apiRequest("/api/analytics/scenario", { method: "POST", body: data }),
+  getDataQuality: () => apiRequest("/api/analytics/data-quality"),
+  fixDataQualityCategories: () => apiRequest("/api/analytics/data-quality/fix-categories", { method: "POST" }),
 
   getRecommendations: () => apiRequest("/api/recommendations"),
 
@@ -160,26 +167,8 @@ export const api = {
   saveBudget: (data) => apiRequest("/api/budgets", { method: "POST", body: data }),
   deleteBudget: (id) => apiRequest(`/api/budgets/${id}`, { method: "DELETE" }),
 
-  getGoals: () => apiRequest("/api/goals"),
-  addGoal: (data) => apiRequest("/api/goals", { method: "POST", body: data }),
-  updateGoal: (id, data) => apiRequest(`/api/goals/${id}`, { method: "PUT", body: data }),
-  deleteGoal: (id) => apiRequest(`/api/goals/${id}`, { method: "DELETE" }),
-  contributeGoal: (id, amount) => apiRequest(`/api/goals/${id}/contribute`, { method: "POST", body: { amount } }),
-
   getSettings: () => apiRequest("/api/settings"),
   updateSettings: (data) => apiRequest("/api/settings", { method: "PUT", body: data }),
-
-  getRates: (params = {}) => {
-    const query = buildQuery(params);
-    return apiRequest(`/api/exchange-rates${query ? `?${query}` : ""}`);
-  },
-  addRate: (data) => apiRequest("/api/exchange-rates", { method: "POST", body: data }),
-
-  getNotifications: (params = {}) => {
-    const query = buildQuery(params);
-    return apiRequest(`/api/notifications${query ? `?${query}` : ""}`);
-  },
-  updateNotification: (id, data) => apiRequest(`/api/notifications/${id}`, { method: "PUT", body: data }),
 
   getAudit: (params = {}) => {
     const query = buildQuery(params);
@@ -191,10 +180,13 @@ export const api = {
     const form = new FormData();
     form.append("file", file);
     return apiRequest(`/api/import/${kind}`, { method: "POST", body: form });
-  },
-
-  seedDemo: () => apiRequest("/api/demo/seed", { method: "POST" })
+  }
 };
+
+export function configureFormatting({ currency, timezone } = {}) {
+  if (currency) formatCurrency = currency;
+  if (timezone) formatTimezone = timezone;
+}
 
 export function toMoney(value) {
   if (value === null || value === undefined) return "—";
@@ -202,15 +194,19 @@ export function toMoney(value) {
   if (Number.isNaN(number)) return String(value);
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
-    currency: "RUB",
+    currency: formatCurrency,
     maximumFractionDigits: 2
   }).format(number);
 }
 
 export function formatDate(value) {
   if (!value) return "—";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    const [year, month, day] = String(value).split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return new Intl.DateTimeFormat("ru-RU", { timeZone: formatTimezone }).format(date);
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("ru-RU");
+  return date.toLocaleDateString("ru-RU", { timeZone: formatTimezone });
 }
-

@@ -45,25 +45,28 @@ def run() -> int:
     category2 = client.post("/api/categories", json={"name": "Food", "type": "expense"})
     check("POST /api/categories (expense)", category2.status_code in (200, 201), f"status={category2.status_code}")
     category_expense_id = (category2.get_json() or {}).get("id")
+    department = client.post("/api/directories/departments", json={"name": "Main"})
+    check("POST /api/directories/departments", department.status_code in (200, 201), f"status={department.status_code}")
+    department_id = (department.get_json() or {}).get("id")
 
     income_id = None
     expense_id = None
 
-    if category_income_id:
-        income = client.post("/api/income", json={"amount": 1000, "category_id": category_income_id})
+    if category_income_id and department_id:
+        income = client.post("/api/income", json={"amount": 1000, "category_id": category_income_id, "date": "2026-01-01", "department_id": department_id})
         check("POST /api/income", income.status_code in (200, 201), f"status={income.status_code}")
         income_id = (income.get_json() or {}).get("id")
     else:
-        check("POST /api/income", False, "category id is missing")
+        check("POST /api/income", False, "category or department id is missing")
 
-    if category_expense_id:
-        expense = client.post("/api/expense", json={"amount": 250, "category_id": category_expense_id})
+    if category_expense_id and department_id:
+        expense = client.post("/api/expense", json={"amount": 250, "category_id": category_expense_id, "date": "2026-01-01", "department_id": department_id})
         check("POST /api/expense", expense.status_code in (200, 201), f"status={expense.status_code}")
         expense_id = (expense.get_json() or {}).get("id")
         limit = client.post("/api/limits", json={"category_id": category_expense_id, "monthly_limit": 500})
         check("POST /api/limits", limit.status_code in (200, 201), f"status={limit.status_code}")
     else:
-        check("POST /api/expense", False, "category id is missing")
+        check("POST /api/expense", False, "category or department id is missing")
         check("POST /api/limits", False, "category id is missing")
 
     if category_income_id:
@@ -73,13 +76,19 @@ def run() -> int:
         check("PUT /api/categories/:id", False, "category id is missing")
 
     if income_id:
-        update_income = client.put(f"/api/income/{income_id}", json={"amount": 1200, "category_id": category_income_id})
+        update_income = client.put(
+            f"/api/income/{income_id}",
+            json={"amount": 1200, "category_id": category_income_id, "date": "2026-01-02", "department_id": department_id},
+        )
         check("PUT /api/income/:id", update_income.status_code == 200, f"status={update_income.status_code}")
     else:
         check("PUT /api/income/:id", False, "income id is missing")
 
     if expense_id:
-        update_expense = client.put(f"/api/expense/{expense_id}", json={"amount": 260, "category_id": category_expense_id})
+        update_expense = client.put(
+            f"/api/expense/{expense_id}",
+            json={"amount": 260, "category_id": category_expense_id, "date": "2026-01-02", "department_id": department_id},
+        )
         check("PUT /api/expense/:id", update_expense.status_code == 200, f"status={update_expense.status_code}")
     else:
         check("PUT /api/expense/:id", False, "expense id is missing")

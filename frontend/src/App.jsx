@@ -1,4 +1,4 @@
-import './App.css'
+﻿import './App.css'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -12,7 +12,7 @@ import {
   Tooltip,
   Legend
 } from 'chart.js'
-import { api } from './api.js'
+import { api, configureFormatting } from './api.js'
 import { ANALYTICS_TABS, KEY_BY_ROUTE, NAV_GROUPS, QUICK_ACTIONS, ROUTE_BY_KEY } from './config/navigation.js'
 import Modal from './shared/ui/Modal.jsx'
 import Sidebar from './shared/layout/Sidebar.jsx'
@@ -57,11 +57,23 @@ async function safeForecastLoad(months) {
   }
 }
 
+const defaultOperationFilter = {
+  dateFrom: '',
+  dateTo: '',
+  departmentId: '',
+  projectId: '',
+  sortBy: 'date',
+  sortDir: 'desc',
+  page: 1,
+  pageSize: 10
+}
+
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
   const [active, setActive] = useState('dashboard')
+  const [operationsTab, setOperationsTab] = useState(() => localStorage.getItem('dss.operationsTab') || 'income')
   const [analyticsTab, setAnalyticsTab] = useState('summary')
   const [analyticsWindow, setAnalyticsWindow] = useState('6')
   const [authed, setAuthed] = useState(false)
@@ -75,7 +87,7 @@ export default function App() {
   const [settings, setSettings] = useState({ base_currency: 'RUB', notify_channels: ['in_app'] })
   const [categories, setCategories] = useState([])
   const [allCategories, setAllCategories] = useState([])
-  const [directories, setDirectories] = useState({ departments: [], projects: [], counterparties: [] })
+  const [directories, setDirectories] = useState({ departments: [], projects: [] })
   const [income, setIncome] = useState([])
   const [expense, setExpense] = useState([])
   const [limits, setLimits] = useState([])
@@ -91,19 +103,20 @@ export default function App() {
   const [budgetVsActual, setBudgetVsActual] = useState(null)
   const [forecast, setForecast] = useState(null)
   const [recommendations, setRecommendations] = useState(null)
+  const [baselineMonthly, setBaselineMonthly] = useState([])
+  const [dataQuality, setDataQuality] = useState(null)
   const [kpi, setKpi] = useState(null)
   const [segments, setSegments] = useState(null)
   const [dashboardSnapshot, setDashboardSnapshot] = useState(null)
 
   const [categoryFilter, setCategoryFilter] = useState(() => readStoredJson('dss.categoryFilter', { search: '', type: '', page: 1, pageSize: 10 }))
-  const [incomeFilter, setIncomeFilter] = useState(() => readStoredJson('dss.incomeFilter', { dateFrom: '', dateTo: '', sortBy: 'date', sortDir: 'desc', page: 1, pageSize: 10 }))
-  const [expenseFilter, setExpenseFilter] = useState(() => readStoredJson('dss.expenseFilter', { dateFrom: '', dateTo: '', sortBy: 'date', sortDir: 'desc', page: 1, pageSize: 10 }))
+  const [incomeFilter, setIncomeFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.incomeFilter', {}) }))
+  const [expenseFilter, setExpenseFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.expenseFilter', {}) }))
 
   const categoryMap = useMemo(() => new Map(allCategories.map((item) => [item.id, item])), [allCategories])
   const directoriesMap = useMemo(() => ({
     departments: new Map((directories.departments || []).map((item) => [item.id, item])),
-    projects: new Map((directories.projects || []).map((item) => [item.id, item])),
-    counterparties: new Map((directories.counterparties || []).map((item) => [item.id, item]))
+    projects: new Map((directories.projects || []).map((item) => [item.id, item]))
   }), [directories])
   const incomeCategories = allCategories.filter((item) => item.type === 'income')
   const expenseCategories = allCategories.filter((item) => item.type === 'expense')
@@ -114,12 +127,11 @@ export default function App() {
   })
 
   const refreshDirectories = () => guard('directories', async () => {
-    const [departments, projects, counterparties] = await Promise.all([
+    const [departments, projects] = await Promise.all([
       api.getDirectories('departments'),
-      api.getDirectories('projects'),
-      api.getDirectories('counterparties')
+      api.getDirectories('projects')
     ])
-    setDirectories({ departments, projects, counterparties })
+    setDirectories({ departments, projects })
   })
 
   const setBusy = (key, value) => setLoading((prev) => ({ ...prev, [key]: value }))
@@ -166,8 +178,10 @@ export default function App() {
     const data = await api.getIncome({
       date_from: incomeFilter.dateFrom || undefined,
       date_to: incomeFilter.dateTo || undefined,
-      sort_by: incomeFilter.sortBy,
-      sort_dir: incomeFilter.sortDir,
+      department_id: incomeFilter.departmentId || undefined,
+      project_id: incomeFilter.projectId || undefined,
+      sort_by: incomeFilter.sortBy || 'date',
+      sort_dir: incomeFilter.sortDir || 'desc',
       page: incomeFilter.page,
       page_size: incomeFilter.pageSize
     })
@@ -189,8 +203,10 @@ export default function App() {
     const data = await api.getExpense({
       date_from: expenseFilter.dateFrom || undefined,
       date_to: expenseFilter.dateTo || undefined,
-      sort_by: expenseFilter.sortBy,
-      sort_dir: expenseFilter.sortDir,
+      department_id: expenseFilter.departmentId || undefined,
+      project_id: expenseFilter.projectId || undefined,
+      sort_by: expenseFilter.sortBy || 'date',
+      sort_dir: expenseFilter.sortDir || 'desc',
       page: expenseFilter.page,
       page_size: expenseFilter.pageSize
     })
@@ -209,7 +225,7 @@ export default function App() {
   })
 
   const refreshCore = () => guard('core', async () => {
-    const [limitsData, summaryData, monthlyData, categoriesMonthlyData, budgetData, recommendationsData, forecastData, kpiData, segmentsData, dashboardData] = await Promise.all([
+    const [limitsData, summaryData, monthlyData, categoriesMonthlyData, budgetData, recommendationsData, forecastData, baselineData, qualityData, kpiData, segmentsData, dashboardData, formatData] = await Promise.all([
       api.getLimits(),
       api.getSummary(),
       api.getMonthly(),
@@ -217,9 +233,12 @@ export default function App() {
       api.getBudgetVsActual(),
       api.getRecommendations(),
       safeForecastLoad(6),
+      api.getBaselineMonthly(),
+      api.getDataQuality(),
       api.getKpi(),
       api.getSegments(),
-      api.getDashboard()
+      api.getDashboard(),
+      api.getFormatSettings()
     ])
     setLimits(limitsData)
     setSummary(summaryData)
@@ -228,14 +247,18 @@ export default function App() {
     setBudgetVsActual(budgetData)
     setRecommendations(recommendationsData)
     setForecast(forecastData)
+    setBaselineMonthly(baselineData || [])
+    setDataQuality(qualityData || null)
     setKpi(kpiData)
     setSegments(segmentsData)
     setDashboardSnapshot(dashboardData)
+    configureFormatting(formatData || {})
   })
 
   const refreshSettings = () => guard('settings', async () => {
     const value = await api.getSettings()
     setSettings({ base_currency: value.base_currency, notify_channels: value.notify_channels ?? ['in_app'] })
+    configureFormatting({ currency: value.base_currency })
   })
 
   const refreshAudit = () => guard('audit', async () => {
@@ -266,6 +289,19 @@ export default function App() {
   useEffect(() => {
     const key = KEY_BY_ROUTE[location.pathname]
     if (key) {
+      if (key === 'income' || key === 'expense') {
+        setOperationsTab(key)
+        setActive('operations')
+        return
+      }
+      if (key === 'categories' || key === 'departments' || key === 'projects') {
+        setActive('structure')
+        return
+      }
+      if (key === 'analytics_monthly' || key === 'analytics_structure' || key === 'analytics_budget' || key === 'forecast' || key === 'recommendations') {
+        setActive('analytics')
+        return
+      }
       setActive(key)
       return
     }
@@ -278,11 +314,12 @@ export default function App() {
 
   useEffect(() => {
     const tabBySection = {
+      analytics: 'summary',
       analytics_monthly: 'monthly',
-      analytics_structure: 'categories',
+      analytics_structure: 'insights',
       analytics_budget: 'budget',
-      forecast: 'forecast',
-      recommendations: 'recommendations'
+      forecast: 'insights',
+      recommendations: 'insights'
     }
     const nextTab = tabBySection[active]
     if (nextTab) setAnalyticsTab(nextTab)
@@ -291,6 +328,7 @@ export default function App() {
   useEffect(() => localStorage.setItem('dss.categoryFilter', JSON.stringify(categoryFilter)), [categoryFilter])
   useEffect(() => localStorage.setItem('dss.incomeFilter', JSON.stringify(incomeFilter)), [incomeFilter])
   useEffect(() => localStorage.setItem('dss.expenseFilter', JSON.stringify(expenseFilter)), [expenseFilter])
+  useEffect(() => localStorage.setItem('dss.operationsTab', operationsTab), [operationsTab])
 
   useEffect(() => {
     api.health().then((h) => setAuthed(Boolean(h?.authenticated))).catch(() => setAuthed(false))
@@ -364,17 +402,21 @@ export default function App() {
 
     const department_id = await ensureDirectoryId('departments', event.target.department_name?.value)
     const project_id = await ensureDirectoryId('projects', event.target.project_name?.value)
-    const counterparty_id = await ensureDirectoryId('counterparties', event.target.counterparty_name?.value)
-
+    if (!department_id) {
+      addAlert('Подразделение обязательно', 'danger')
+      return
+    }
+    if (!event.target.date.value) {
+      addAlert('Дата обязательна', 'danger')
+      return
+    }
     const payload = {
       amount: Number(event.target.amount.value),
       category_id: Number(event.target.category_id.value),
-      date: event.target.date.value || undefined,
-      currency: event.target.currency.value || undefined,
+      date: event.target.date.value,
       note: event.target.note.value || undefined,
       department_id,
-      project_id,
-      counterparty_id
+      project_id
     }
 
     const createFn = entity === 'income' ? api.addIncome : api.addExpense
@@ -411,17 +453,22 @@ export default function App() {
     const id = Number(event.target.income_id.value)
     const department_id = await ensureDirectoryId('departments', event.target.department_name?.value)
     const project_id = await ensureDirectoryId('projects', event.target.project_name?.value)
-    const counterparty_id = await ensureDirectoryId('counterparties', event.target.counterparty_name?.value)
+    if (!department_id) {
+      addAlert('Подразделение обязательно', 'danger')
+      return
+    }
+    if (!event.target.date.value) {
+      addAlert('Дата обязательна', 'danger')
+      return
+    }
     await guard('income', async () => {
       await api.updateIncome(id, {
         amount: Number(event.target.amount.value),
         category_id: Number(event.target.category_id.value),
-        date: event.target.date.value || undefined,
-        currency: event.target.currency.value || undefined,
+        date: event.target.date.value,
         note: event.target.note.value || undefined,
         department_id,
-        project_id,
-        counterparty_id
+        project_id
       })
       await refreshIncome()
       await refreshCore()
@@ -436,17 +483,22 @@ export default function App() {
     const id = Number(event.target.expense_id.value)
     const department_id = await ensureDirectoryId('departments', event.target.department_name?.value)
     const project_id = await ensureDirectoryId('projects', event.target.project_name?.value)
-    const counterparty_id = await ensureDirectoryId('counterparties', event.target.counterparty_name?.value)
+    if (!department_id) {
+      addAlert('Подразделение обязательно', 'danger')
+      return
+    }
+    if (!event.target.date.value) {
+      addAlert('Дата обязательна', 'danger')
+      return
+    }
     await guard('expense', async () => {
       await api.updateExpense(id, {
         amount: Number(event.target.amount.value),
         category_id: Number(event.target.category_id.value),
-        date: event.target.date.value || undefined,
-        currency: event.target.currency.value || undefined,
+        date: event.target.date.value,
         note: event.target.note.value || undefined,
         department_id,
-        project_id,
-        counterparty_id
+        project_id
       })
       await refreshExpense()
       await refreshCore()
@@ -486,7 +538,7 @@ export default function App() {
     await api.addDirectory(kind, { name })
     await refreshDirectories()
     await refreshAudit()
-    addAlert('?????????? ????????', 'success')
+    addAlert('Справочник обновлен', 'success')
   })
 
   const normalizeName = (value) => (value || '').trim().toLowerCase()
@@ -502,7 +554,7 @@ export default function App() {
       const created = await api.addDirectory(kind, { name: value })
       await refreshDirectories()
       await refreshAudit()
-      addAlert(`?????????? ????????: ${value}`, 'success')
+      addAlert(`Элемент справочника добавлен: ${value}`, 'success')
       return created?.id
     } catch (error) {
       await refreshDirectories()
@@ -636,7 +688,7 @@ export default function App() {
 
   const atRiskLimits = limitsProgress.filter((item) => item.pct >= 80).length
   const systemAlerts = [
-    ...(summaryValues.balance < 0 ? ['Отрицательный баланс.'] : []),
+    ...(recommendations?.alerts || []),
     ...limitsProgress.filter((item) => item.pct > 100).map((item) => `Лимит превышен: ${item.name}`)
   ]
 
@@ -671,16 +723,15 @@ export default function App() {
   }, [monthMap])
 
   const aiInsights = useMemo(() => {
-    const list = []
-    if (savingsRate >= 20) list.push({ tone: 'success', text: 'Отличный месяц для накоплений' })
-    const limitAlert = limitsProgress.find((item) => item.pct > 100)
-    if (limitAlert) list.push({ tone: 'danger', text: `Вы превысили лимит по категории "${limitAlert.name}"` })
-    if (savingsRate < 20 && summaryValues.income > 0) {
-      const deficit = Math.max(0, 20 - savingsRate)
-      list.push({ tone: 'warning', text: `Стоит сократить расходы на ${deficit.toFixed(1)}% для цели по savings rate` })
+    const detailed = recommendations?.detailed || []
+    if (detailed.length) {
+      return detailed.map((item) => ({
+        tone: item.type === 'alert' ? 'danger' : (item.priority === 'low' ? 'success' : 'warning'),
+        text: item.message
+      }))
     }
-    return list
-  }, [limitsProgress, savingsRate, summaryValues.income])
+    return (recommendations?.recommendations || []).map((text) => ({ tone: 'warning', text }))
+  }, [recommendations])
 
   const analyticsView = (
     <AnalyticsPage
@@ -699,8 +750,46 @@ export default function App() {
       budgetVsActual={scopedBudgetVsActual}
       forecast={forecast}
       recommendations={recommendations}
+      baselineMonthly={baselineMonthly}
+      dataQuality={dataQuality}
+      onFixDataQuality={async () => {
+        await api.fixDataQualityCategories()
+        await refreshCore()
+        await refreshIncome()
+        await refreshExpense()
+        addAlert('Категории и подразделения операций восстановлены', 'success')
+      }}
+      runScenario={api.runScenario}
     />
   )
+
+  const incomePageProps = {
+    loading: loading.income,
+    filter: incomeFilter,
+    setFilter: setIncomeFilter,
+    income,
+    meta: incomeMeta,
+    categoryMap,
+    directories,
+    directoriesMap,
+    onOpenCreate: () => setModal({ type: 'create', entity: 'income' }),
+    onOpenEdit: (item) => setModal({ type: 'income-edit', data: item }),
+    onRemove: removeIncome
+  }
+
+  const expensePageProps = {
+    loading: loading.expense,
+    filter: expenseFilter,
+    setFilter: setExpenseFilter,
+    expense,
+    meta: expenseMeta,
+    categoryMap,
+    directories,
+    directoriesMap,
+    onOpenCreate: () => setModal({ type: 'create', entity: 'expense' }),
+    onOpenEdit: (item) => setModal({ type: 'expense-edit', data: item }),
+    onRemove: removeExpense
+  }
 
   const contentByKey = {
     dashboard: (
@@ -725,6 +814,29 @@ export default function App() {
         remainingToMonthEnd={remainingToMonthEnd}
       />
     ),
+    operations: (
+      <OperationsPage
+        activeTab={operationsTab}
+        setActiveTab={setOperationsTab}
+        incomeProps={incomePageProps}
+        expenseProps={expensePageProps}
+      />
+    ),
+    structure: (
+      <>
+        <CategoriesPage
+          loading={loading.categories}
+          filter={categoryFilter}
+          setFilter={setCategoryFilter}
+          categories={categories}
+          meta={categoriesMeta}
+          onOpenCreate={() => setModal({ type: 'create', entity: 'category' })}
+          onOpenEdit={(item) => setModal({ type: 'category-edit', data: item })}
+          onRemove={removeCategory}
+        />
+        <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />
+      </>
+    ),
     categories: (
       <CategoriesPage
         loading={loading.categories}
@@ -737,38 +849,12 @@ export default function App() {
         onRemove={removeCategory}
       />
     ),
-    income: (
-      <IncomePage
-        loading={loading.income}
-        filter={incomeFilter}
-        setFilter={setIncomeFilter}
-        income={income}
-        meta={incomeMeta}
-        categoryMap={categoryMap}
-        directoriesMap={directoriesMap}
-        onOpenCreate={() => setModal({ type: 'create', entity: 'income' })}
-        onOpenEdit={(item) => setModal({ type: 'income-edit', data: item })}
-        onRemove={removeIncome}
-      />
-    ),
-    expense: (
-      <ExpensePage
-        loading={loading.expense}
-        filter={expenseFilter}
-        setFilter={setExpenseFilter}
-        expense={expense}
-        meta={expenseMeta}
-        categoryMap={categoryMap}
-        directoriesMap={directoriesMap}
-        onOpenCreate={() => setModal({ type: 'create', entity: 'expense' })}
-        onOpenEdit={(item) => setModal({ type: 'expense-edit', data: item })}
-        onRemove={removeExpense}
-      />
-    ),
+    income: <IncomePage {...incomePageProps} />,
+    expense: <ExpensePage {...expensePageProps} />,
     departments: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
     projects: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
-    counterparties: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
     budget_limits: <LimitsPage limitsProgress={limitsProgress} onOpenLimit={() => setModal({ type: 'limit' })} />,
+    analytics: analyticsView,
     analytics_monthly: analyticsView,
     analytics_structure: analyticsView,
     analytics_budget: analyticsView,
@@ -838,11 +924,9 @@ export default function App() {
             <>
               <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" required /></label>
               <label className="field"><span>Статья P&L</span><select name="category_id" required>{createCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-              <label className="field"><span>Department</span><input name="department_name" list="departments-list" placeholder="Type or select" /></label>
-              <label className="field"><span>Project</span><input name="project_name" list="projects-list" placeholder="Type or select" /></label>
-              <label className="field"><span>Counterparty</span><input name="counterparty_name" list="counterparties-list" placeholder="Type or select" /></label>
-              <label className="field"><span>Дата</span><input name="date" type="date" /></label>
-              <label className="field"><span>Валюта</span><input name="currency" defaultValue={settings.base_currency} /></label>
+              <label className="field"><span>Подразделение</span><input name="department_name" list="departments-list" placeholder="Введите или выберите" required /></label>
+              <label className="field"><span>Проект (опц.)</span><input name="project_name" list="projects-list" placeholder="Введите или выберите" /></label>
+              <label className="field"><span>Дата</span><input name="date" type="date" required /></label>
               <label className="field"><span>Комментарий</span><input name="note" /></label>
             </>
           )}
@@ -863,12 +947,10 @@ export default function App() {
         <form className="modal-form" onSubmit={handleUpdateIncome}>
           <input type="hidden" name="income_id" value={modal?.data?.id || ''} />
           <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" defaultValue={modal?.data?.amount || ''} required /></label>
-          <label className="field"><span>Статья P&L</span><select name="category_id" defaultValue={modal?.data?.category_id || ''}>{incomeCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="field"><span>Department</span><input name="department_name" list="departments-list" defaultValue={directoriesMap.departments.get(modal?.data?.department_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Project</span><input name="project_name" list="projects-list" defaultValue={directoriesMap.projects.get(modal?.data?.project_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Counterparty</span><input name="counterparty_name" list="counterparties-list" defaultValue={directoriesMap.counterparties.get(modal?.data?.counterparty_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} /></label>
-          <label className="field"><span>Валюта</span><input name="currency" defaultValue={modal?.data?.currency || settings.base_currency} /></label>
+          <label className="field"><span>Статья P&L</span><select name="category_id" required defaultValue={modal?.data?.category_id || ''}>{incomeCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field"><span>Подразделение</span><input name="department_name" list="departments-list" defaultValue={directoriesMap.departments.get(modal?.data?.department_id)?.name || ""} placeholder="Введите или выберите" required /></label>
+          <label className="field"><span>Проект (опц.)</span><input name="project_name" list="projects-list" defaultValue={directoriesMap.projects.get(modal?.data?.project_id)?.name || ""} placeholder="Введите или выберите" /></label>
+          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} required /></label>
           <label className="field"><span>Комментарий</span><input name="note" defaultValue={modal?.data?.note || ''} /></label>
           <button className="primary" type="submit">Сохранить</button>
         </form>
@@ -878,12 +960,10 @@ export default function App() {
         <form className="modal-form" onSubmit={handleUpdateExpense}>
           <input type="hidden" name="expense_id" value={modal?.data?.id || ''} />
           <label className="field"><span>Сумма</span><input name="amount" type="number" step="0.01" min="0" defaultValue={modal?.data?.amount || ''} required /></label>
-          <label className="field"><span>Статья P&L</span><select name="category_id" defaultValue={modal?.data?.category_id || ''}>{expenseCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="field"><span>Department</span><input name="department_name" list="departments-list" defaultValue={directoriesMap.departments.get(modal?.data?.department_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Project</span><input name="project_name" list="projects-list" defaultValue={directoriesMap.projects.get(modal?.data?.project_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Counterparty</span><input name="counterparty_name" list="counterparties-list" defaultValue={directoriesMap.counterparties.get(modal?.data?.counterparty_id)?.name || ""} placeholder="Type or select" /></label>
-          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} /></label>
-          <label className="field"><span>Валюта</span><input name="currency" defaultValue={modal?.data?.currency || settings.base_currency} /></label>
+          <label className="field"><span>Статья P&L</span><select name="category_id" required defaultValue={modal?.data?.category_id || ''}>{expenseCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="field"><span>Подразделение</span><input name="department_name" list="departments-list" defaultValue={directoriesMap.departments.get(modal?.data?.department_id)?.name || ""} placeholder="Введите или выберите" required /></label>
+          <label className="field"><span>Проект (опц.)</span><input name="project_name" list="projects-list" defaultValue={directoriesMap.projects.get(modal?.data?.project_id)?.name || ""} placeholder="Введите или выберите" /></label>
+          <label className="field"><span>Дата</span><input name="date" type="date" defaultValue={modal?.data?.date || ''} required /></label>
           <label className="field"><span>Комментарий</span><input name="note" defaultValue={modal?.data?.note || ''} /></label>
           <button className="primary" type="submit">Сохранить</button>
         </form>
@@ -891,7 +971,6 @@ export default function App() {
 
       <datalist id="departments-list">{directories.departments.map((item) => <option key={item.id} value={item.name} />)}</datalist>
       <datalist id="projects-list">{directories.projects.map((item) => <option key={item.id} value={item.name} />)}</datalist>
-      <datalist id="counterparties-list">{directories.counterparties.map((item) => <option key={item.id} value={item.name} />)}</datalist>
 
       <Modal open={modal?.type === 'limit'} title="Лимит" onClose={() => setModal(null)}>
         <form className="modal-form" onSubmit={saveLimit}>
@@ -903,3 +982,4 @@ export default function App() {
     </div>
   )
 }
+

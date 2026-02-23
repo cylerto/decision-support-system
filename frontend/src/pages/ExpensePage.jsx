@@ -83,7 +83,6 @@ export default function ExpensePage({
                 <th>Статья P&L</th>
                 <th>Подразделение</th>
                 <th>Проект</th>
-                <th>Контрагент</th>
                 <th>Сумма</th>
                 <th>Комментарий</th>
                 <th>Действия</th>
@@ -93,10 +92,9 @@ export default function ExpensePage({
               {expense.map((item) => (
                 <tr key={item.id}>
                   <td data-label="Дата">{formatDate(item.date)}</td>
-                  <td data-label="Статья P&L">{categoryMap.get(item.category_id)?.name || 'Без категории'}</td>
+                  <td data-label="Статья P&L">{categoryMap.get(item.category_id)?.name || '—'}</td>
                   <td data-label="Подразделение">{directoriesMap.departments.get(item.department_id)?.name || '—'}</td>
                   <td data-label="Проект">{directoriesMap.projects.get(item.project_id)?.name || '—'}</td>
-                  <td data-label="Контрагент">{directoriesMap.counterparties.get(item.counterparty_id)?.name || '—'}</td>
                   <td data-label="Сумма" className="tone-expense">{toMoney(item.amount)}</td>
                   <td data-label="Комментарий">{item.note || '—'}</td>
                   <td data-label="Действия" className="table-actions">

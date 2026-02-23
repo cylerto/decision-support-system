@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 
 from ..extensions import db
-from ..models import Counterparty, Department, OperationDimension, Project
+from ..models import Department, OperationDimension, Project
 from ..utils import log_action
 
 
@@ -12,7 +12,6 @@ directories_bp = Blueprint("directories_bp", __name__, url_prefix="/api/director
 MODEL_BY_KIND = {
     "departments": Department,
     "projects": Project,
-    "counterparties": Counterparty,
 }
 
 
@@ -82,10 +81,8 @@ def delete_directory(kind, row_id):
 
     if kind == "departments":
         in_use = OperationDimension.query.filter_by(user_id=current_user.id, department_id=row_id).first()
-    elif kind == "projects":
-        in_use = OperationDimension.query.filter_by(user_id=current_user.id, project_id=row_id).first()
     else:
-        in_use = OperationDimension.query.filter_by(user_id=current_user.id, counterparty_id=row_id).first()
+        in_use = OperationDimension.query.filter_by(user_id=current_user.id, project_id=row_id).first()
 
     if in_use:
         return jsonify({"message": "Directory is in use"}), 400

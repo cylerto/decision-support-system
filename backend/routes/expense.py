@@ -1,12 +1,20 @@
-from flask import Blueprint, request, jsonify
-from flask_login import login_required, current_user
-from datetime import datetime
-from sqlalchemy import and_
+from flask import Blueprint, jsonify, request
+from flask_login import current_user, login_required
+from sqlalchemy import and_, extract, func
 from sqlalchemy.orm import aliased
 
 from ..extensions import db
-from ..models import CategoryLimit, Counterparty, Department, Expense, OperationDimension, Project, TransactionMeta
-from ..utils import create_notification, ensure_user_settings, get_exchange_rate, log_action
+from ..models import CategoryLimit, Expense, OperationDimension, TransactionMeta
+from ..operation_rules import (
+    optional_project,
+    parse_amount,
+    parse_date,
+    require_category,
+    require_department,
+    validate_pagination,
+    validate_sorting,
+)
+from ..utils import create_notification, ensure_user_settings, log_action
 
 expense_bp = Blueprint("expense_bp", __name__, url_prefix="/api/expense")
 
@@ -14,100 +22,60 @@ expense_bp = Blueprint("expense_bp", __name__, url_prefix="/api/expense")
 @expense_bp.route("", methods=["POST"])
 @login_required
 def add_expense():
-    data = request.get_json()
+    data = request.get_json() or {}
 
-    amount = data.get("amount")
-    category_id = data.get("category_id")
-    date_str = data.get("date")
-    currency = data.get("currency")
-    fx_rate = data.get("fx_rate")
-    note = data.get("note")
-    department_id = data.get("department_id")
-    project_id = data.get("project_id")
-    counterparty_id = data.get("counterparty_id")
-
-    if not amount:
-        return jsonify({"message": "Amount is required"}), 400
-
-    if date_str:
-        date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    else:
-        date = datetime.utcnow().date()
-
-    settings = ensure_user_settings()
-    original_amount = amount
-    if currency:
-        if not fx_rate and currency != settings.base_currency:
-            fx_rate = get_exchange_rate(settings.base_currency, currency)
-            if fx_rate is None:
-                return jsonify({"message": "FX rate not found"}), 400
-        if fx_rate and currency != settings.base_currency:
-            amount = float(amount) * float(fx_rate)
-
-    if department_id:
-        exists = Department.query.filter_by(id=department_id, user_id=current_user.id).first()
-        if not exists:
-            return jsonify({"message": "Department not found"}), 400
-    if project_id:
-        exists = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
-        if not exists:
-            return jsonify({"message": "Project not found"}), 400
-    if counterparty_id:
-        exists = Counterparty.query.filter_by(id=counterparty_id, user_id=current_user.id).first()
-        if not exists:
-            return jsonify({"message": "Counterparty not found"}), 400
+    try:
+        amount = parse_amount(data.get("amount"), required=True)
+        date_value = parse_date(data.get("date"), required=True)
+        category = require_category(data.get("category_id"), current_user.id, "expense")
+        department = require_department(data.get("department_id"), current_user.id)
+        project = optional_project(data.get("project_id"), current_user.id)
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
 
     expense = Expense(
         amount=amount,
-        date=date,
+        date=date_value,
         user_id=current_user.id,
-        category_id=category_id
+        category_id=category.id,
     )
-
     db.session.add(expense)
-    db.session.commit()
+    db.session.flush()
 
-    if currency:
-        meta = TransactionMeta(
-            transaction_type="expense",
-            transaction_id=expense.id,
-            currency=currency,
-            fx_rate=fx_rate,
-            note=note,
-            original_amount=original_amount
-        )
-        db.session.add(meta)
+    note = data.get("note")
+    if note:
+        db.session.add(TransactionMeta(transaction_type="expense", transaction_id=expense.id, note=note))
 
-    if any([department_id, project_id, counterparty_id]):
-        dim = OperationDimension(
+    db.session.add(
+        OperationDimension(
             user_id=current_user.id,
             transaction_type="expense",
             transaction_id=expense.id,
-            department_id=department_id or None,
-            project_id=project_id or None,
-            counterparty_id=counterparty_id or None,
+            department_id=department.id,
+            project_id=project.id if project else None,
         )
-        db.session.add(dim)
+    )
 
-    limit = None
-    if category_id:
-        limit = CategoryLimit.query.filter_by(user_id=current_user.id, category_id=category_id).first()
+    settings = ensure_user_settings()
+    limit = CategoryLimit.query.filter_by(user_id=current_user.id, category_id=category.id).first()
     if limit:
-        month_total = sum(
-            e.amount for e in Expense.query.filter_by(
-                user_id=current_user.id,
-                category_id=category_id
-            ).all()
-            if e.date.year == date.year and e.date.month == date.month
+        month_total = (
+            db.session.query(func.coalesce(func.sum(Expense.amount), 0))
+            .filter(
+                Expense.user_id == current_user.id,
+                Expense.category_id == category.id,
+                extract("year", Expense.date) == date_value.year,
+                extract("month", Expense.date) == date_value.month,
+            )
+            .scalar()
         )
-        if month_total > float(limit.monthly_limit):
+        if float(month_total or 0) > float(limit.monthly_limit):
             channels = settings.notify_channels if settings else ["in_app"]
             for channel in channels:
                 create_notification("Превышен лимит по категории", channel)
 
     log_action("create", "expense", expense.id, data)
     db.session.commit()
-
     return jsonify({"message": "Expense added", "id": expense.id}), 201
 
 
@@ -129,19 +97,17 @@ def get_expenses():
     category_id = request.args.get("category_id", type=int)
     department_id = request.args.get("department_id", type=int)
     project_id = request.args.get("project_id", type=int)
-    sort_by = request.args.get("sort_by", "date")
-    sort_dir = request.args.get("sort_dir", "desc")
-    page = request.args.get("page", 1, type=int)
-    page_size = request.args.get("page_size", 20, type=int)
+    sort_by, sort_dir = validate_sorting(request.args.get("sort_by", "date"), request.args.get("sort_dir", "desc"))
+    page, page_size = validate_pagination(request.args.get("page", 1, type=int), request.args.get("page_size", 20, type=int))
 
-    if date_from == "undefined":
-        date_from = None
-    if date_to == "undefined":
-        date_to = None
-    if date_from:
-        query = query.filter(Expense.date >= datetime.strptime(date_from, "%Y-%m-%d").date())
-    if date_to:
-        query = query.filter(Expense.date <= datetime.strptime(date_to, "%Y-%m-%d").date())
+    try:
+        if date_from and date_from != "undefined":
+            query = query.filter(Expense.date >= parse_date(date_from, field_name="date_from", required=True))
+        if date_to and date_to != "undefined":
+            query = query.filter(Expense.date <= parse_date(date_to, field_name="date_to", required=True))
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+
     if category_id:
         query = query.filter(Expense.category_id == category_id)
     if department_id:
@@ -159,50 +125,49 @@ def get_expenses():
     elif sort_by == "project":
         sort_column = dim.project_id
 
-    if sort_dir == "asc":
-        query = query.order_by(sort_column.asc())
-    else:
-        query = query.order_by(sort_column.desc())
+    query = query.order_by(sort_column.asc() if sort_dir == "asc" else sort_column.desc())
 
     total = query.count()
     items = query.offset((page - 1) * page_size).limit(page_size).all()
-    if items:
-        try:
-            meta_rows = TransactionMeta.query.filter_by(transaction_type="expense").filter(
-                TransactionMeta.transaction_id.in_([e.id for e in items])
-            ).all()
-            metas = {m.transaction_id: m for m in meta_rows}
-        except Exception:
-            metas = {}
-        dims = {
-            d.transaction_id: d
-            for d in OperationDimension.query.filter_by(user_id=current_user.id, transaction_type="expense").filter(
-                OperationDimension.transaction_id.in_([e.id for e in items])
-            ).all()
-        }
+
+    ids = [row.id for row in items]
+    if ids:
+        meta_rows = (
+            TransactionMeta.query.filter_by(transaction_type="expense")
+            .filter(TransactionMeta.transaction_id.in_(ids))
+            .all()
+        )
+        metas = {row.transaction_id: row for row in meta_rows}
+
+        dim_rows = (
+            OperationDimension.query.filter_by(user_id=current_user.id, transaction_type="expense")
+            .filter(OperationDimension.transaction_id.in_(ids))
+            .all()
+        )
+        dims = {row.transaction_id: row for row in dim_rows}
     else:
         metas = {}
         dims = {}
 
-    return jsonify({
-        "items": [
-            {
-                "id": e.id,
-                "amount": e.amount,
-                "date": e.date.isoformat(),
-                "category_id": e.category_id,
-                "currency": metas.get(e.id).currency if metas.get(e.id) else None,
-                "fx_rate": metas.get(e.id).fx_rate if metas.get(e.id) else None,
-                "note": metas.get(e.id).note if metas.get(e.id) else None,
-                "department_id": dims.get(e.id).department_id if dims.get(e.id) else None,
-                "project_id": dims.get(e.id).project_id if dims.get(e.id) else None,
-                "counterparty_id": dims.get(e.id).counterparty_id if dims.get(e.id) else None,
-            } for e in items
-        ],
-        "total": total,
-        "page": page,
-        "page_size": page_size
-    })
+    return jsonify(
+        {
+            "items": [
+                {
+                    "id": row.id,
+                    "amount": row.amount,
+                    "date": row.date.isoformat(),
+                    "category_id": row.category_id,
+                    "note": metas.get(row.id).note if metas.get(row.id) else None,
+                    "department_id": dims.get(row.id).department_id if dims.get(row.id) else None,
+                    "project_id": dims.get(row.id).project_id if dims.get(row.id) else None,
+                }
+                for row in items
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    )
 
 
 @expense_bp.route("/<int:expense_id>", methods=["PUT"])
@@ -213,73 +178,45 @@ def update_expense(expense_id):
     if not expense:
         return jsonify({"message": "Expense not found"}), 404
 
-    if "amount" in data:
-        expense.amount = data["amount"]
-    if "category_id" in data:
-        expense.category_id = data["category_id"]
-    if "date" in data:
-        expense.date = datetime.strptime(data["date"], "%Y-%m-%d").date()
-
-    currency = data.get("currency")
-    fx_rate = data.get("fx_rate")
-    note = data.get("note")
-    department_id = data.get("department_id")
-    project_id = data.get("project_id")
-    counterparty_id = data.get("counterparty_id")
-
-    settings = ensure_user_settings()
-    meta = None
-    meta = TransactionMeta.query.filter_by(transaction_type="expense", transaction_id=expense.id).first()
-    if currency or fx_rate or note:
-        if not meta:
-            meta = TransactionMeta(transaction_type="expense", transaction_id=expense.id, currency=settings.base_currency)
-            db.session.add(meta)
-        if currency:
-            if currency != settings.base_currency and not fx_rate:
-                fx_rate = get_exchange_rate(settings.base_currency, currency)
-                if fx_rate is None:
-                    return jsonify({"message": "FX rate not found"}), 400
-            meta.currency = currency
-        if fx_rate is not None:
-            meta.fx_rate = fx_rate
-        if note is not None:
-            meta.note = note
+    try:
         if "amount" in data:
-            meta.original_amount = data["amount"]
-            if meta.currency and meta.currency != settings.base_currency and meta.fx_rate:
-                expense.amount = float(data["amount"]) * float(meta.fx_rate)
+            expense.amount = parse_amount(data.get("amount"), required=True)
+        if "category_id" in data:
+            category = require_category(data.get("category_id"), current_user.id, "expense")
+            expense.category_id = category.id
+        if "date" in data:
+            expense.date = parse_date(data.get("date"), required=True)
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
 
-    if any(k in data for k in ("department_id", "project_id", "counterparty_id")):
-        dim = OperationDimension.query.filter_by(
-            user_id=current_user.id,
-            transaction_type="expense",
-            transaction_id=expense.id
-        ).first()
-        if not dim:
-            dim = OperationDimension(
-                user_id=current_user.id,
-                transaction_type="expense",
-                transaction_id=expense.id
-            )
-            db.session.add(dim)
+    meta = TransactionMeta.query.filter_by(transaction_type="expense", transaction_id=expense.id).first()
+    if "note" in data:
+        note = data.get("note")
+        if meta is None and note:
+            meta = TransactionMeta(transaction_type="expense", transaction_id=expense.id)
+            db.session.add(meta)
+        if meta is not None:
+            meta.note = note
+
+    dim = OperationDimension.query.filter_by(
+        user_id=current_user.id, transaction_type="expense", transaction_id=expense.id
+    ).first()
+    if dim is None:
+        dim = OperationDimension(user_id=current_user.id, transaction_type="expense", transaction_id=expense.id)
+        db.session.add(dim)
+
+    try:
         if "department_id" in data:
-            if department_id:
-                exists = Department.query.filter_by(id=department_id, user_id=current_user.id).first()
-                if not exists:
-                    return jsonify({"message": "Department not found"}), 400
-            dim.department_id = department_id or None
+            department = require_department(data.get("department_id"), current_user.id)
+            dim.department_id = department.id
         if "project_id" in data:
-            if project_id:
-                exists = Project.query.filter_by(id=project_id, user_id=current_user.id).first()
-                if not exists:
-                    return jsonify({"message": "Project not found"}), 400
-            dim.project_id = project_id or None
-        if "counterparty_id" in data:
-            if counterparty_id:
-                exists = Counterparty.query.filter_by(id=counterparty_id, user_id=current_user.id).first()
-                if not exists:
-                    return jsonify({"message": "Counterparty not found"}), 400
-            dim.counterparty_id = counterparty_id or None
+            project = optional_project(data.get("project_id"), current_user.id)
+            dim.project_id = project.id if project else None
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+
+    if not dim.department_id:
+        return jsonify({"message": "department_id is required"}), 400
 
     log_action("update", "expense", expense.id, data)
     db.session.commit()
@@ -294,7 +231,9 @@ def delete_expense(expense_id):
         return jsonify({"message": "Expense not found"}), 404
 
     TransactionMeta.query.filter_by(transaction_type="expense", transaction_id=expense.id).delete()
-    OperationDimension.query.filter_by(transaction_type="expense", transaction_id=expense.id).delete()
+    OperationDimension.query.filter_by(
+        user_id=current_user.id, transaction_type="expense", transaction_id=expense.id
+    ).delete()
     db.session.delete(expense)
     log_action("delete", "expense", expense.id)
     db.session.commit()

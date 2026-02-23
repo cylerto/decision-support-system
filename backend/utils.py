@@ -4,7 +4,7 @@ from sqlalchemy import inspect
 from flask_login import current_user
 
 from .extensions import db
-from .models import AuditLog, ExchangeRate, Notification, UserSettings
+from .models import AuditLog, Notification, UserSettings
 
 
 def log_action(action, entity, entity_id=None, data=None):
@@ -32,18 +32,6 @@ def ensure_user_settings():
         db.session.add(settings)
         db.session.commit()
     return settings
-
-
-def get_exchange_rate(base_currency, quote_currency):
-    if base_currency == quote_currency:
-        return 1.0
-    rate = (
-        ExchangeRate.query
-        .filter_by(base_currency=base_currency, quote_currency=quote_currency)
-        .order_by(ExchangeRate.date.desc())
-        .first()
-    )
-    return rate.rate if rate else None
 
 
 def create_notification(message, channel="in_app"):

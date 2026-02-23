@@ -1,4 +1,4 @@
-export const NAV_GROUPS = [
+﻿export const NAV_GROUPS = [
   {
     title: 'Дашборд',
     icon: 'DB',
@@ -12,34 +12,17 @@ export const NAV_GROUPS = [
   {
     title: 'Структура',
     icon: 'ST',
-    items: [
-      { key: 'categories', label: 'Статьи P&L', icon: 'categories' },
-      { key: 'departments', label: 'Подразделения', icon: 'departments' },
-      { key: 'projects', label: 'Проекты', icon: 'projects' },
-      { key: 'counterparties', label: 'Контрагенты', icon: 'counterparties' }
-    ]
+    items: [{ key: 'structure', label: 'Статьи / Подразделения (опц.) / Проекты (опц.)', icon: 'structure' }]
   },
   {
-    title: 'Бюджет и контроль',
+    title: 'Бюджет',
     icon: 'BG',
     items: [{ key: 'budget_limits', label: 'Бюджеты / Лимиты', icon: 'limit' }]
   },
   {
     title: 'Аналитика',
-    icon: 'AN',
-    items: [
-      { key: 'analytics_monthly', label: 'Динамика по месяцам', icon: 'trend' },
-      { key: 'analytics_structure', label: 'Структура затрат', icon: 'structure' },
-      { key: 'analytics_budget', label: 'Бюджет vs факт', icon: 'budget' }
-    ]
-  },
-  {
-    title: 'Решения',
     icon: 'AI',
-    items: [
-      { key: 'forecast', label: 'Прогноз', icon: 'forecast' },
-      { key: 'recommendations', label: 'Рекомендации', icon: 'recommendations' }
-    ]
+    items: [{ key: 'analytics', label: 'Аналитика и решения', icon: 'analytics' }]
   },
   {
     title: 'Система',
@@ -55,10 +38,8 @@ export const NAV_GROUPS = [
 export const ANALYTICS_TABS = [
   { key: 'summary', label: 'Сводка' },
   { key: 'monthly', label: 'Динамика по месяцам' },
-  { key: 'categories', label: 'Структура затрат' },
   { key: 'budget', label: 'Бюджет vs факт' },
-  { key: 'forecast', label: 'Прогноз' },
-  { key: 'recommendations', label: 'Рекомендации' }
+  { key: 'insights', label: 'Прогноз и рекомендации' }
 ]
 
 export const QUICK_ACTIONS = [
@@ -71,21 +52,24 @@ export const QUICK_ACTIONS = [
 export const ROUTE_BY_KEY = {
   dashboard: '/dashboard',
   operations: '/operations',
+  structure: '/structure',
+  analytics: '/analytics',
+  budget_limits: '/budget-limits',
+  data: '/data',
+  history: '/history',
+  settings: '/settings',
+
+  // legacy routes for backward compatibility
   income: '/income',
   expense: '/expense',
   categories: '/categories',
   departments: '/departments',
   projects: '/projects',
-  counterparties: '/counterparties',
-  budget_limits: '/budget-limits',
   analytics_monthly: '/analytics/monthly',
   analytics_structure: '/analytics/structure',
   analytics_budget: '/analytics/budget',
   forecast: '/forecast',
-  recommendations: '/recommendations',
-  data: '/data',
-  history: '/history',
-  settings: '/settings'
+  recommendations: '/recommendations'
 }
 
 export const KEY_BY_ROUTE = Object.fromEntries(

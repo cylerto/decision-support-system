@@ -3,8 +3,7 @@ import EmptyState from '../shared/ui/EmptyState.jsx'
 
 const KINDS = [
   { key: 'departments', title: 'Подразделения' },
-  { key: 'projects', title: 'Проекты' },
-  { key: 'counterparties', title: 'Контрагенты' }
+  { key: 'projects', title: 'Проекты' }
 ]
 
 function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
@@ -74,7 +73,7 @@ export default function DirectoriesPage({ directories, onCreate, onUpdate, onDel
     <section>
       <SectionHeader
         title="Справочники"
-        subtitle="Подразделения, проекты и контрагенты"
+        subtitle="Подразделения и проекты"
       />
 
       <div className="grid-cards">

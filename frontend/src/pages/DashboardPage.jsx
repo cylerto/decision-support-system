@@ -1,4 +1,4 @@
-import { Bar, Doughnut, Line } from 'react-chartjs-2'
+﻿import { Bar, Doughnut, Line } from 'react-chartjs-2'
 import { formatDate, toMoney } from '../api.js'
 import SectionHeader from '../shared/ui/SectionHeader.jsx'
 import EmptyState from '../shared/ui/EmptyState.jsx'
@@ -9,6 +9,12 @@ function trendTone(value) {
   if (value < 0) return 'down'
   return 'flat'
 }
+
+const formatCompactMoney = (value) => new Intl.NumberFormat('ru-RU', {
+  notation: 'compact',
+  compactDisplay: 'short',
+  maximumFractionDigits: 1
+}).format(Number(value || 0))
 
 export default function DashboardPage({
   summaryValues,
@@ -34,22 +40,50 @@ export default function DashboardPage({
   const burnValue = Math.max(0, Math.min(100, burnRate))
 
   const lineOptions = {
+    maintainAspectRatio: false,
     responsive: true,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { labels: { color: '#94a3b8' } },
-      tooltip: { backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1, padding: 12 }
+      legend: { labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 10 } },
+      tooltip: {
+        backgroundColor: '#0b1220',
+        borderColor: 'rgba(148,163,184,0.35)',
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: ${toMoney(ctx.raw)}`
+        }
+      }
     },
-    elements: { line: { tension: 0.35, borderWidth: 2.5 } },
+    elements: { line: { tension: 0.35, borderWidth: 3 }, point: { radius: 3, hoverRadius: 5 } },
     scales: {
       x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } },
-      y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.12)' } }
+      y: {
+        ticks: { color: '#94a3b8', callback: (value) => formatCompactMoney(value) },
+        grid: { color: 'rgba(148,163,184,0.12)' }
+      }
     }
   }
 
   const donutOptions = {
+    maintainAspectRatio: false,
     cutout: '70%',
-    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#0f172a' } }
+    plugins: {
+      legend: { display: false },
+      tooltip: { backgroundColor: '#0f172a', callbacks: { label: (ctx) => `${ctx.label}: ${ctx.raw.toFixed(1)}%` } }
+    }
   }
+
+  const pieOptions = {
+    maintainAspectRatio: false,
+    cutout: '58%',
+    plugins: {
+      legend: { position: 'right', labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 10 } },
+      tooltip: { backgroundColor: '#0f172a', callbacks: { label: (ctx) => `${ctx.label}: ${toMoney(ctx.raw)}` } }
+    }
+  }
+
+  const categoryLabels = Object.keys(latestCategorySpend || {})
+  const categoryValues = Object.values(latestCategorySpend || {})
 
   return (
     <section>
@@ -76,11 +110,19 @@ export default function DashboardPage({
       <div className="grid-cards">
         <div className="card">
           <h3>Тренд по месяцам</h3>
-          {loading ? <SkeletonBlock rows={6} /> : <Line options={lineOptions} data={{ labels: monthLabels, datasets: [{ label: 'Доходы', data: monthLabels.map((key) => monthMap[key]?.income || 0), borderColor: '#10b981', fill: true }, { label: 'Расходы', data: monthLabels.map((key) => monthMap[key]?.expense || 0), borderColor: '#ef4444', fill: true }] }} />}
+          {loading ? <SkeletonBlock rows={6} /> : (
+            <div className="chart-wrap chart-md">
+              <Line options={lineOptions} data={{ labels: monthLabels, datasets: [{ label: 'Доходы', data: monthLabels.map((key) => monthMap[key]?.income || 0), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.12)', fill: true }, { label: 'Расходы', data: monthLabels.map((key) => monthMap[key]?.expense || 0), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.12)', fill: true }] }} />
+            </div>
+          )}
         </div>
         <div className="card">
           <h3>Расходы по категориям</h3>
-          {Object.keys(latestCategorySpend).length === 0 ? <EmptyState title="Нет данных" description="Добавьте расходы" /> : <Doughnut data={{ labels: Object.keys(latestCategorySpend), datasets: [{ data: Object.values(latestCategorySpend), backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#6366f1'] }] }} />}
+          {categoryLabels.length === 0 ? <EmptyState title="Нет данных" description="Добавьте расходы" /> : (
+            <div className="chart-wrap chart-md">
+              <Doughnut options={pieOptions} data={{ labels: categoryLabels, datasets: [{ data: categoryValues, backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#6366f1', '#22d3ee', '#a78bfa', '#f97316'] }] }} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -105,7 +147,9 @@ export default function DashboardPage({
         <div className="card">
           <h3>Лимиты по категориям</h3>
           {limitsProgress.length === 0 ? <EmptyState title="Нет лимитов" description="Создайте лимит" /> : (
-            <Bar options={lineOptions} data={{ labels: limitsProgress.map((item) => item.name), datasets: [{ label: 'Потрачено', data: limitsProgress.map((item) => item.spent), backgroundColor: '#3b82f6', borderRadius: 8 }, { label: 'Лимит', data: limitsProgress.map((item) => item.limit), backgroundColor: '#10b981', borderRadius: 8 }] }} />
+            <div className="chart-wrap chart-md">
+              <Bar options={lineOptions} data={{ labels: limitsProgress.map((item) => item.name), datasets: [{ label: 'Потрачено', data: limitsProgress.map((item) => item.spent), backgroundColor: '#3b82f6', borderRadius: 8 }, { label: 'Лимит', data: limitsProgress.map((item) => item.limit), backgroundColor: '#10b981', borderRadius: 8 }] }} />
+            </div>
           )}
         </div>
       </div>
@@ -140,7 +184,7 @@ export default function DashboardPage({
                   <tr key={`${item.type}-${item.id}`}>
                     <td data-label="Дата">{formatDate(item.date)}</td>
                     <td data-label="Тип">{item.type === 'income' ? 'Доход' : 'Расход'}</td>
-                    <td data-label="Категория">{categoryMap.get(item.category_id)?.name || item.category_id}</td>
+                    <td data-label="Категория">{categoryMap.get(item.category_id)?.name || item.category_id || '—'}</td>
                     <td data-label="Сумма" className={item.type === 'income' ? 'tone-income' : 'tone-expense'}>{toMoney(item.amount)}</td>
                   </tr>
                 ))}
