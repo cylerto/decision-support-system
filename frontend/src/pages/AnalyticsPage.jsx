@@ -38,7 +38,10 @@ export default function AnalyticsPage({
   recommendations,
   baselineMonthly,
   dataQuality,
+  aiRecommendationsText,
+  aiRecommendationsLoading,
   onFixDataQuality,
+  onGenerateAiRecommendations,
   runScenario
 }) {
   const [monthlyMode, setMonthlyMode] = useState('line')
@@ -364,6 +367,28 @@ export default function AnalyticsPage({
                     <div className="spend-progress"><div style={{ width: `${Math.max(6, (item.value / maxSpend) * 100)}%` }} /></div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ai_recommendations' && (
+        <div className="grid-cards insights-summary-grid">
+          <div className="card">
+            <h3>AI-анализ и рекомендации руководителю</h3>
+            <p className="hint">Модель анализирует уже рассчитанные показатели и формирует управленческие выводы.</p>
+            <button className="primary" onClick={onGenerateAiRecommendations} disabled={aiRecommendationsLoading}>
+              {aiRecommendationsLoading ? 'Генерация...' : 'Сгенерировать AI-рекомендации'}
+            </button>
+          </div>
+          <div className="card">
+            <h3>Результат</h3>
+            {!aiRecommendationsText ? (
+              <EmptyState title="Нет результата" description="Нажмите кнопку генерации, чтобы получить текст от модели" />
+            ) : (
+              <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
+                {aiRecommendationsText}
               </div>
             )}
           </div>

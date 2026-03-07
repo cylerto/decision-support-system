@@ -108,6 +108,8 @@ export default function App() {
   const [kpi, setKpi] = useState(null)
   const [segments, setSegments] = useState(null)
   const [dashboardSnapshot, setDashboardSnapshot] = useState(null)
+  const [aiRecommendationsText, setAiRecommendationsText] = useState('')
+  const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false)
 
   const [categoryFilter, setCategoryFilter] = useState(() => readStoredJson('dss.categoryFilter', { search: '', type: '', page: 1, pageSize: 10 }))
   const [incomeFilter, setIncomeFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.incomeFilter', {}) }))
@@ -752,12 +754,39 @@ export default function App() {
       recommendations={recommendations}
       baselineMonthly={baselineMonthly}
       dataQuality={dataQuality}
+      aiRecommendationsText={aiRecommendationsText}
+      aiRecommendationsLoading={aiRecommendationsLoading}
       onFixDataQuality={async () => {
         await api.fixDataQualityCategories()
         await refreshCore()
         await refreshIncome()
         await refreshExpense()
         addAlert('Категории и подразделения операций восстановлены', 'success')
+      }}
+      onGenerateAiRecommendations={async () => {
+        setAiRecommendationsLoading(true)
+        try {
+          const payload = {
+            summary: summaryValues,
+            kpi: { savingsRate, burnRate },
+            monthly: scopedMonthLabels.map((month) => ({
+              month,
+              income: Number(monthMap[month]?.income || 0),
+              expense: Number(monthMap[month]?.expense || 0),
+              profit: Number((monthMap[month]?.income || 0) - (monthMap[month]?.expense || 0))
+            })),
+            budget_vs_fact: scopedBudgetVsActual,
+            baseline: baselineMonthly,
+            forecast: forecast || {},
+            existing_recommendations: recommendations || {}
+          }
+          const result = await api.getAiRecommendations(payload)
+          setAiRecommendationsText(result?.recommendations || '')
+        } catch (error) {
+          addAlert(error.message || 'Ошибка при получении AI-рекомендаций', 'danger')
+        } finally {
+          setAiRecommendationsLoading(false)
+        }
       }}
       runScenario={api.runScenario}
     />

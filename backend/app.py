@@ -11,6 +11,7 @@ except ImportError:
     load_dotenv = None
 
 from backend.extensions import db, login_manager
+from backend.ai_engine import generate_recommendations
 from backend.finance_engine import get_dashboard
 from backend.models import CategoryLimit
 from backend.recommendation_engine import build_recommendations
@@ -141,6 +142,16 @@ def register_legacy_routes(app: Flask) -> None:
     @login_required
     def recommendations():
         return jsonify(build_recommendations(current_user.id))
+
+    @app.route("/api/ai/recommendations", methods=["POST"])
+    @login_required
+    def ai_recommendations():
+        data = request.get_json() or {}
+        try:
+            text = generate_recommendations(data)
+            return jsonify({"recommendations": text})
+        except Exception as exc:
+            return jsonify({"message": str(exc)}), 502
 
 
 app = create_app()

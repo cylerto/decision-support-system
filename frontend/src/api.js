@@ -122,6 +122,7 @@ export const api = {
   runScenario: (data) => apiRequest("/api/analytics/scenario", { method: "POST", body: data }),
   getDataQuality: () => apiRequest("/api/analytics/data-quality"),
   fixDataQualityCategories: () => apiRequest("/api/analytics/data-quality/fix-categories", { method: "POST" }),
+  getAiRecommendations: (financialData) => apiRequest("/api/ai/recommendations", { method: "POST", body: financialData }),
 
   getRecommendations: () => apiRequest("/api/recommendations"),
 

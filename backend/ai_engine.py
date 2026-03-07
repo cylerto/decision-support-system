@@ -1,11 +1,22 @@
+import os
+from pathlib import Path
+import time
+
 import numpy as np
+import requests
 from sqlalchemy import extract, func
 from sklearn.linear_model import LinearRegression
+from dotenv import load_dotenv
 
 from backend.extensions import db
 
 
 MAX_GROWTH_RATE = 0.3
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+AI_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _prepare_monthly_data(model, user_id):
@@ -106,3 +117,97 @@ def forecast(model_income, model_expense, user_id, months):
         "confidence": _confidence_level(months_count),
         "series": {"income": income_series, "expense": expense_series},
     }
+
+
+def _dict_to_readable_text(financial_data: dict) -> str:
+    lines = []
+    for key, value in financial_data.items():
+        if isinstance(value, (dict, list)):
+            lines.append(f"{key}: {value}")
+        else:
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)
+
+
+def generate_recommendations(financial_data: dict) -> str:
+    provider = (os.getenv("AI_PROVIDER", "openrouter") or "openrouter").strip().lower()
+    api_key = (
+        os.getenv("DEEPSEEK_API_KEY")
+        if provider == "deepseek"
+        else (os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"))
+    )
+    if not api_key:
+        raise RuntimeError("API key is missing in environment variables")
+
+    system_prompt = (
+        "Ты аналитическая модель в системе поддержки принятия решений для малого предприятия. "
+        "Ты не считаешь данные — ты анализируешь их и формируешь управленческие рекомендации."
+    )
+    user_prompt = (
+        "Вот показатели предприятия:\n"
+        f"{_dict_to_readable_text(financial_data)}\n\n"
+        "Сформируй:\n"
+        "1. Общую оценку текущего финансового состояния\n"
+        "2. Основные риски\n"
+        "3. Конкретные управленческие рекомендации\n"
+        "4. Краткий вывод"
+    )
+
+    if provider == "deepseek":
+        base_url = DEEPSEEK_URL
+        primary_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
+        models = [primary_model]
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+    else:
+        base_url = OPENROUTER_URL
+        primary_model = os.getenv("OPENROUTER_MODEL", AI_MODEL).strip() or AI_MODEL
+        fallback_models_raw = os.getenv(
+            "OPENROUTER_FALLBACK_MODELS",
+            "openai/gpt-4o-mini,mistralai/mistral-7b-instruct:free,google/gemma-2-9b-it:free",
+        )
+        models = [primary_model] + [m.strip() for m in fallback_models_raw.split(",") if m.strip()]
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost"),
+            "X-Title": os.getenv("OPENROUTER_APP_NAME", "Decision Support System"),
+        }
+
+    last_error = None
+    for model in models:
+        payload = {
+            "model": model,
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        for attempt in range(3):
+            try:
+                response = requests.post(base_url, headers=headers, json=payload, timeout=30)
+                if response.status_code == 429:
+                    last_error = RuntimeError(f"429 Too Many Requests (model: {model})")
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+            except requests.RequestException as exc:
+                last_error = exc
+                # for non-429 HTTP/network errors, move to next model
+                break
+            except (KeyError, TypeError, ValueError) as exc:
+                last_error = exc
+                break
+
+    # Soft fallback text to avoid 502 on free-tier throttling.
+    return (
+        "AI-сервис временно перегружен (лимит free-модели). "
+        "Рекомендация: повторите запрос через 30-60 секунд, "
+        "или снизьте частоту генерации. "
+        f"Провайдер: {provider}. Техническая деталь: {last_error}"
+    )

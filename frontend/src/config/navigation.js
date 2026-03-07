@@ -39,7 +39,8 @@ export const ANALYTICS_TABS = [
   { key: 'summary', label: 'Сводка' },
   { key: 'monthly', label: 'Динамика по месяцам' },
   { key: 'budget', label: 'Бюджет vs факт' },
-  { key: 'insights', label: 'Прогноз и рекомендации' }
+  { key: 'insights', label: 'Прогноз и рекомендации' },
+  { key: 'ai_recommendations', label: 'AI-рекомендации' }
 ]
 
 export const QUICK_ACTIONS = [

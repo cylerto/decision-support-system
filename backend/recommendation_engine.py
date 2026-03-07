@@ -6,6 +6,7 @@ from backend.finance_engine import get_baseline_monthly, get_kpi, get_recommenda
 
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def _safe_json_loads(text):
@@ -30,12 +31,13 @@ def _build_prompt_payload(user_id):
 
 
 def _call_openai(payload):
+    provider = os.getenv("AI_PROVIDER", "openrouter").strip().lower() or "openrouter"
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+    model = os.getenv("OPENAI_MODEL", "openai/gpt-4o-mini").strip() or "openai/gpt-4o-mini"
     timeout_sec = float(os.getenv("OPENAI_TIMEOUT_SEC", "15"))
 
     if not api_key:
-        return None, "missing_api_key", model
+        return None, "missing_api_key", model, provider
 
     system_prompt = (
         "Ты финансовый аналитик для малого бизнеса. "
@@ -60,13 +62,19 @@ def _call_openai(payload):
         ],
     }
 
+    url = OPENROUTER_CHAT_URL if provider == "openrouter" else OPENAI_CHAT_URL
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost")
+        headers["X-Title"] = os.getenv("OPENROUTER_APP_NAME", "Decision Support System")
+
     req = request.Request(
-        OPENAI_CHAT_URL,
+        url,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         method="POST",
     )
 
@@ -77,25 +85,26 @@ def _call_openai(payload):
             content = response_json["choices"][0]["message"]["content"]
             ai_json = _safe_json_loads(content)
             if not ai_json:
-                return None, "invalid_ai_json", model
-            return ai_json, "ok", model
+                return None, "invalid_ai_json", model, provider
+            return ai_json, "ok", model, provider
     except error.HTTPError as exc:
-        return None, f"http_{exc.code}", model
+        return None, f"http_{exc.code}", model, provider
     except Exception:
-        return None, "request_failed", model
+        return None, "request_failed", model, provider
 
 
 def build_recommendations(user_id):
     rule_based = get_recommendations(user_id)
 
     payload = _build_prompt_payload(user_id)
-    ai_result, ai_status, model = _call_openai(payload)
+    ai_result, ai_status, model, provider = _call_openai(payload)
 
     if not ai_result:
         return {
             **rule_based,
             "meta": {
                 "provider": "openai",
+                "provider": provider,
                 "model": model,
                 "ai_used": False,
                 "ai_status": ai_status,
@@ -112,6 +121,7 @@ def build_recommendations(user_id):
             **rule_based,
             "meta": {
                 "provider": "openai",
+                "provider": provider,
                 "model": model,
                 "ai_used": False,
                 "ai_status": "schema_mismatch",
@@ -132,7 +142,7 @@ def build_recommendations(user_id):
             for item in detailed
         ],
         "meta": {
-            "provider": "openai",
+            "provider": provider,
             "model": model,
             "ai_used": True,
             "ai_status": ai_status,
