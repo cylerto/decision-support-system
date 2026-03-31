@@ -1,5 +1,5 @@
 ﻿import './App.css'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Chart as ChartJS,
@@ -24,12 +24,9 @@ import CategoriesPage from './pages/CategoriesPage.jsx'
 import IncomePage from './pages/IncomePage.jsx'
 import ExpensePage from './pages/ExpensePage.jsx'
 import OperationsPage from './pages/OperationsPage.jsx'
-import LimitsPage from './pages/LimitsPage.jsx'
 import AnalyticsPage from './pages/AnalyticsPage.jsx'
-import DataPage from './pages/DataPage.jsx'
-import SettingsPage from './pages/SettingsPage.jsx'
 import DirectoriesPage from './pages/DirectoriesPage.jsx'
-import HistoryPage from './pages/HistoryPage.jsx'
+import SystemHubPage from './pages/SystemHubPage.jsx'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend)
 
@@ -44,10 +41,6 @@ function readStoredJson(key, fallback) {
   }
 }
 
-function confirmDanger(text) {
-  return window.confirm(text)
-}
-
 async function safeForecastLoad(months) {
   try {
     return await api.getForecastSeries(months)
@@ -55,6 +48,34 @@ async function safeForecastLoad(months) {
     if (error?.status === 400) return { message: error.message, series: null }
     throw error
   }
+}
+
+function cleanAiText(text) {
+  return String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`/g, '')
+    .replace(/[*_~]/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .replace(/^\s*[-•]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function parseAiRecommendations(text) {
+  if (!text) return []
+  return cleanAiText(text)
+    .split(/\n{2,}/)
+    .map((item) => item.replace(/\n/g, ' ').trim())
+    .filter(Boolean)
+}
+
+function detectTone(text) {
+  const lower = String(text || '').toLowerCase()
+  if (/(крит|убыт|дефицит|риск|паден|перерасход|сниж|просроч)/.test(lower)) return 'danger'
+  if (/(контрол|оптимиз|огранич|пересмотр|внимани|монитор)/.test(lower)) return 'warning'
+  return 'success'
 }
 
 const defaultOperationFilter = {
@@ -84,13 +105,11 @@ export default function App() {
   const [alerts, setAlerts] = useState([])
   const [loading, setLoading] = useState({})
 
-  const [settings, setSettings] = useState({ base_currency: 'RUB', notify_channels: ['in_app'] })
   const [categories, setCategories] = useState([])
   const [allCategories, setAllCategories] = useState([])
   const [directories, setDirectories] = useState({ departments: [], projects: [] })
   const [income, setIncome] = useState([])
   const [expense, setExpense] = useState([])
-  const [limits, setLimits] = useState([])
   const [audit, setAudit] = useState([])
 
   const [categoriesMeta, setCategoriesMeta] = useState({ total: 0, page: 1, page_size: 10 })
@@ -100,16 +119,14 @@ export default function App() {
   const [summary, setSummary] = useState(null)
   const [monthly, setMonthly] = useState(null)
   const [categoriesMonthly, setCategoriesMonthly] = useState(null)
-  const [budgetVsActual, setBudgetVsActual] = useState(null)
   const [forecast, setForecast] = useState(null)
   const [recommendations, setRecommendations] = useState(null)
   const [baselineMonthly, setBaselineMonthly] = useState([])
   const [dataQuality, setDataQuality] = useState(null)
   const [kpi, setKpi] = useState(null)
-  const [segments, setSegments] = useState(null)
-  const [dashboardSnapshot, setDashboardSnapshot] = useState(null)
   const [aiRecommendationsText, setAiRecommendationsText] = useState('')
   const [aiRecommendationsLoading, setAiRecommendationsLoading] = useState(false)
+  const [lastAiSignature, setLastAiSignature] = useState('')
 
   const [categoryFilter, setCategoryFilter] = useState(() => readStoredJson('dss.categoryFilter', { search: '', type: '', page: 1, pageSize: 10 }))
   const [incomeFilter, setIncomeFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.incomeFilter', {}) }))
@@ -136,8 +153,13 @@ export default function App() {
     setDirectories({ departments, projects })
   })
 
-  const setBusy = (key, value) => setLoading((prev) => ({ ...prev, [key]: value }))
-  const addAlert = (message, tone = 'warning') => setAlerts((prev) => [...prev, { id: Date.now() + Math.random(), message, tone }])
+  const setBusy = useCallback((key, value) => {
+    setLoading((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const addAlert = useCallback((message, tone = 'warning') => {
+    setAlerts((prev) => [...prev, { id: Date.now() + Math.random(), message, tone }])
+  }, [])
 
   const guard = async (key, action) => {
     setBusy(key, true)
@@ -227,40 +249,26 @@ export default function App() {
   })
 
   const refreshCore = () => guard('core', async () => {
-    const [limitsData, summaryData, monthlyData, categoriesMonthlyData, budgetData, recommendationsData, forecastData, baselineData, qualityData, kpiData, segmentsData, dashboardData, formatData] = await Promise.all([
-      api.getLimits(),
+    const [summaryData, monthlyData, categoriesMonthlyData, recommendationsData, forecastData, baselineData, qualityData, kpiData, formatData] = await Promise.all([
       api.getSummary(),
       api.getMonthly(),
       api.getCategoriesMonthly(),
-      api.getBudgetVsActual(),
       api.getRecommendations(),
       safeForecastLoad(6),
       api.getBaselineMonthly(),
       api.getDataQuality(),
       api.getKpi(),
-      api.getSegments(),
-      api.getDashboard(),
       api.getFormatSettings()
     ])
-    setLimits(limitsData)
     setSummary(summaryData)
     setMonthly(monthlyData)
     setCategoriesMonthly(categoriesMonthlyData)
-    setBudgetVsActual(budgetData)
     setRecommendations(recommendationsData)
     setForecast(forecastData)
     setBaselineMonthly(baselineData || [])
     setDataQuality(qualityData || null)
     setKpi(kpiData)
-    setSegments(segmentsData)
-    setDashboardSnapshot(dashboardData)
     configureFormatting(formatData || {})
-  })
-
-  const refreshSettings = () => guard('settings', async () => {
-    const value = await api.getSettings()
-    setSettings({ base_currency: value.base_currency, notify_channels: value.notify_channels ?? ['in_app'] })
-    configureFormatting({ currency: value.base_currency })
   })
 
   const refreshAudit = () => guard('audit', async () => {
@@ -276,7 +284,6 @@ export default function App() {
       refreshIncome(),
       refreshExpense(),
       refreshCore(),
-      refreshSettings(),
       refreshAudit()
     ])
   }
@@ -300,7 +307,11 @@ export default function App() {
         setActive('structure')
         return
       }
-      if (key === 'analytics_monthly' || key === 'analytics_structure' || key === 'analytics_budget' || key === 'forecast' || key === 'recommendations') {
+      if (key === 'system' || key === 'data' || key === 'history' || key === 'settings') {
+        setActive('system')
+        return
+      }
+      if (key === 'analytics_monthly' || key === 'analytics_structure' || key === 'forecast' || key === 'recommendations') {
         setActive('analytics')
         return
       }
@@ -319,7 +330,6 @@ export default function App() {
       analytics: 'summary',
       analytics_monthly: 'monthly',
       analytics_structure: 'insights',
-      analytics_budget: 'budget',
       forecast: 'insights',
       recommendations: 'insights'
     }
@@ -510,30 +520,22 @@ export default function App() {
     })
   }
 
-  const saveLimit = async (event) => {
-    event.preventDefault()
-    await guard('limits', async () => {
-      await api.saveLimit({
-        category_id: Number(event.target.category_id.value),
-        monthly_limit: Number(event.target.monthly_limit.value)
+  const askDeleteConfirm = (message) => (
+    new Promise((resolve) => {
+      setModal({
+        type: 'confirm-delete',
+        title: 'Подтвердите удаление',
+        message,
+        resolve
       })
-      await refreshCore()
-      await refreshAudit()
-      setModal(null)
-      addAlert('Лимит сохранен', 'success')
     })
-  }
+  )
 
-  const saveSettingsInline = async (payload) => {
-    await guard('settings', async () => {
-      await api.updateSettings({
-        base_currency: payload.base_currency,
-        widgets: {},
-        notify_channels: settings.notify_channels
-      })
-      await refreshSettings()
-      addAlert('Настройки обновлены', 'success')
-    })
+  const closeDeleteConfirm = (confirmed) => {
+    if (modal?.type === 'confirm-delete' && typeof modal.resolve === 'function') {
+      modal.resolve(Boolean(confirmed))
+    }
+    setModal(null)
   }
 
   const createDirectory = (kind, name) => guard('directories', async () => {
@@ -574,7 +576,8 @@ export default function App() {
   })
 
   const deleteDirectory = (kind, id) => guard('directories', async () => {
-    if (!confirmDanger('Удалить элемент справочника?')) return
+    const confirmed = await askDeleteConfirm('Удалить элемент справочника?')
+    if (!confirmed) return
     await api.deleteDirectory(kind, id)
     await refreshDirectories()
     await refreshAudit()
@@ -603,7 +606,8 @@ export default function App() {
   }
 
   const removeCategory = (id) => guard('categories', async () => {
-    if (!confirmDanger('Удалить категорию?')) return
+    const confirmed = await askDeleteConfirm('Удалить статью P&L?')
+    if (!confirmed) return
     await api.deleteCategory(id)
     await refreshCategories()
     await refreshCategoryCatalog()
@@ -612,7 +616,8 @@ export default function App() {
   })
 
   const removeIncome = (id) => guard('income', async () => {
-    if (!confirmDanger('Удалить доход?')) return
+    const confirmed = await askDeleteConfirm('Удалить операцию выручки?')
+    if (!confirmed) return
     await api.deleteIncome(id)
     await refreshIncome()
     await refreshCore()
@@ -621,7 +626,8 @@ export default function App() {
   })
 
   const removeExpense = (id) => guard('expense', async () => {
-    if (!confirmDanger('Удалить расход?')) return
+    const confirmed = await askDeleteConfirm('Удалить операцию затрат?')
+    if (!confirmed) return
     await api.deleteExpense(id)
     await refreshExpense()
     await refreshCore()
@@ -672,27 +678,8 @@ export default function App() {
     return aggregate
   }, [categoriesMonthly, scopedMonthLabels])
 
-  const scopedBudgetVsActual = useMemo(() => {
-    if (!Array.isArray(budgetVsActual)) return []
-    const keys = new Set(scopedMonthLabels)
-    return budgetVsActual.filter((row) => keys.has(row.month))
-  }, [budgetVsActual, scopedMonthLabels])
-
   const latestCategorySpend = categoriesMonthly?.[latestMonthKey] || {}
-
-  const limitsProgress = limits.map((item) => {
-    const name = categoryMap.get(item.category_id)?.name || `ID ${item.category_id}`
-    const spent = Number(latestCategorySpend[name] || 0)
-    const limit = Number(item.monthly_limit || 0)
-    const pct = limit > 0 ? (spent / limit) * 100 : 0
-    return { ...item, name, spent, limit, pct }
-  }).sort((a, b) => b.pct - a.pct)
-
-  const atRiskLimits = limitsProgress.filter((item) => item.pct >= 80).length
-  const systemAlerts = [
-    ...(recommendations?.alerts || []),
-    ...limitsProgress.filter((item) => item.pct > 100).map((item) => `Лимит превышен: ${item.name}`)
-  ]
+  const systemAlerts = [...(recommendations?.alerts || [])]
 
   const remainingToMonthEnd = useMemo(() => {
     const currentMonth = new Date().toISOString().slice(0, 7)
@@ -700,14 +687,6 @@ export default function App() {
     if (!current) return 0
     return Number((current.income || 0) - (current.expense || 0))
   }, [monthMap])
-
-  const recentTransactions = useMemo(() => {
-    const list = [
-      ...income.map((item) => ({ ...item, type: 'income' })),
-      ...expense.map((item) => ({ ...item, type: 'expense' }))
-    ]
-    return list.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 8)
-  }, [income, expense])
 
   const monthStats = useMemo(() => {
     const keys = Object.keys(monthMap).sort()
@@ -724,7 +703,56 @@ export default function App() {
     return { income: ratio(cIncome, pIncome), expense: ratio(cExpense, pExpense), balance: ratio(cBalance, pBalance) }
   }, [monthMap])
 
+  const aiPayload = useMemo(() => ({
+    summary: summaryValues,
+    kpi: { savingsRate, burnRate },
+    monthly: scopedMonthLabels.map((month) => ({
+      month,
+      income: Number(monthMap[month]?.income || 0),
+      expense: Number(monthMap[month]?.expense || 0),
+      profit: Number((monthMap[month]?.income || 0) - (monthMap[month]?.expense || 0))
+    })),
+    baseline: baselineMonthly,
+    forecast: forecast || {},
+    existing_recommendations: recommendations || {}
+  }), [summaryValues, savingsRate, burnRate, scopedMonthLabels, monthMap, baselineMonthly, forecast, recommendations])
+
+  const requestAiRecommendations = useCallback(async ({ silent = false } = {}) => {
+    if (!authed || aiRecommendationsLoading) return
+    if (!aiPayload.monthly.length) return
+
+    const signature = JSON.stringify(aiPayload)
+    if (silent && signature === lastAiSignature) return
+
+    setAiRecommendationsLoading(true)
+    try {
+      const result = await api.getAiRecommendations(aiPayload)
+      setAiRecommendationsText(result?.recommendations || '')
+      setLastAiSignature(signature)
+      if (!silent) addAlert('AI-рекомендации обновлены', 'success')
+    } catch (error) {
+      if (silent) setLastAiSignature(signature)
+      if (!silent) addAlert(error.message || 'Ошибка при получении AI-рекомендаций', 'danger')
+    } finally {
+      setAiRecommendationsLoading(false)
+    }
+  }, [authed, aiRecommendationsLoading, aiPayload, lastAiSignature, addAlert])
+
+  useEffect(() => {
+    if (!authed) return
+    if (!aiPayload.monthly.length) return
+    const timer = setTimeout(() => {
+      requestAiRecommendations({ silent: true })
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [authed, aiPayload, requestAiRecommendations])
+
   const aiInsights = useMemo(() => {
+    const aiPoints = parseAiRecommendations(aiRecommendationsText)
+    if (aiPoints.length) {
+      return aiPoints.slice(0, 4).map((text) => ({ tone: detectTone(text), text }))
+    }
+
     const detailed = recommendations?.detailed || []
     if (detailed.length) {
       return detailed.map((item) => ({
@@ -733,7 +761,7 @@ export default function App() {
       }))
     }
     return (recommendations?.recommendations || []).map((text) => ({ tone: 'warning', text }))
-  }, [recommendations])
+  }, [aiRecommendationsText, recommendations])
 
   const analyticsView = (
     <AnalyticsPage
@@ -748,8 +776,6 @@ export default function App() {
       burnRate={burnRate}
       monthLabels={scopedMonthLabels}
       monthMap={monthMap}
-      latestCategorySpend={scopedCategorySpend}
-      budgetVsActual={scopedBudgetVsActual}
       forecast={forecast}
       recommendations={recommendations}
       baselineMonthly={baselineMonthly}
@@ -763,31 +789,7 @@ export default function App() {
         await refreshExpense()
         addAlert('Категории и подразделения операций восстановлены', 'success')
       }}
-      onGenerateAiRecommendations={async () => {
-        setAiRecommendationsLoading(true)
-        try {
-          const payload = {
-            summary: summaryValues,
-            kpi: { savingsRate, burnRate },
-            monthly: scopedMonthLabels.map((month) => ({
-              month,
-              income: Number(monthMap[month]?.income || 0),
-              expense: Number(monthMap[month]?.expense || 0),
-              profit: Number((monthMap[month]?.income || 0) - (monthMap[month]?.expense || 0))
-            })),
-            budget_vs_fact: scopedBudgetVsActual,
-            baseline: baselineMonthly,
-            forecast: forecast || {},
-            existing_recommendations: recommendations || {}
-          }
-          const result = await api.getAiRecommendations(payload)
-          setAiRecommendationsText(result?.recommendations || '')
-        } catch (error) {
-          addAlert(error.message || 'Ошибка при получении AI-рекомендаций', 'danger')
-        } finally {
-          setAiRecommendationsLoading(false)
-        }
-      }}
+      onGenerateAiRecommendations={() => requestAiRecommendations({ silent: false })}
       runScenario={api.runScenario}
     />
   )
@@ -820,6 +822,16 @@ export default function App() {
     onRemove: removeExpense
   }
 
+  const systemView = (
+    <SystemHubPage
+      onExportCsv={exportCsv}
+      onImportCsv={importCsv}
+      rows={audit}
+      historyLoading={loading.audit}
+      onRefreshHistory={refreshAudit}
+    />
+  )
+
   const contentByKey = {
     dashboard: (
       <DashboardPage
@@ -831,15 +843,10 @@ export default function App() {
         monthLabels={scopedMonthLabels}
         monthMap={monthMap}
         latestCategorySpend={scopedCategorySpend}
-        limitsProgress={limitsProgress}
         systemAlerts={systemAlerts}
         insights={aiInsights}
-        dashboardSnapshot={dashboardSnapshot}
-        recentTransactions={recentTransactions}
-        categoryMap={categoryMap}
-        segments={segments}
+        forecast={forecast}
         loading={loading.core}
-        atRiskLimits={atRiskLimits}
         remainingToMonthEnd={remainingToMonthEnd}
       />
     ),
@@ -882,27 +889,15 @@ export default function App() {
     expense: <ExpensePage {...expensePageProps} />,
     departments: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
     projects: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
-    budget_limits: <LimitsPage limitsProgress={limitsProgress} onOpenLimit={() => setModal({ type: 'limit' })} />,
     analytics: analyticsView,
     analytics_monthly: analyticsView,
     analytics_structure: analyticsView,
-    analytics_budget: analyticsView,
     forecast: analyticsView,
     recommendations: analyticsView,
-    data: <DataPage onExportCsv={exportCsv} onImportCsv={importCsv} />,
-    history: <HistoryPage rows={audit} loading={loading.audit} onRefresh={refreshAudit} />,
-    settings: (
-      <SettingsPage
-        settings={settings}
-        theme={theme}
-        onThemeChange={(next) => {
-          setTheme(next)
-          localStorage.setItem('theme', next)
-          document.documentElement.dataset.theme = next
-        }}
-        onSave={saveSettingsInline}
-      />
-    )
+    system: systemView,
+    data: systemView,
+    history: systemView,
+    settings: systemView
   }
 
   if (!authed) {
@@ -1001,12 +996,14 @@ export default function App() {
       <datalist id="departments-list">{directories.departments.map((item) => <option key={item.id} value={item.name} />)}</datalist>
       <datalist id="projects-list">{directories.projects.map((item) => <option key={item.id} value={item.name} />)}</datalist>
 
-      <Modal open={modal?.type === 'limit'} title="Лимит" onClose={() => setModal(null)}>
-        <form className="modal-form" onSubmit={saveLimit}>
-          <label className="field"><span>Категория</span><select name="category_id" required>{expenseCategories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="field"><span>Лимит на месяц</span><input name="monthly_limit" type="number" step="0.01" min="0" required /></label>
-          <button className="primary" type="submit">Сохранить</button>
-        </form>
+      <Modal open={modal?.type === 'confirm-delete'} title={modal?.title || 'Подтверждение'} onClose={() => closeDeleteConfirm(false)}>
+        <div className="confirm-delete">
+          <p>{modal?.message || 'Подтвердите действие'}</p>
+          <div className="confirm-delete-actions">
+            <button className="ghost" type="button" onClick={() => closeDeleteConfirm(false)}>Отмена</button>
+            <button className="ghost danger" type="button" onClick={() => closeDeleteConfirm(true)}>Удалить</button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

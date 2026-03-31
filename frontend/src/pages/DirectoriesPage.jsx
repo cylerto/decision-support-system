@@ -7,7 +7,7 @@ const KINDS = [
 ]
 
 function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
-  const inputId = `${kind}-name`
+  const inputName = `${kind}_name`
 
   return (
     <div className="card">
@@ -16,7 +16,8 @@ function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
         className="table-controls"
         onSubmit={(event) => {
           event.preventDefault()
-          const value = event.currentTarget.elements[inputId]?.value?.trim()
+          const formData = new FormData(event.currentTarget)
+          const value = String(formData.get(inputName) || '').trim()
           if (!value) return
           onCreate(kind, value)
           event.currentTarget.reset()
@@ -24,7 +25,7 @@ function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
       >
         <label className="field compact">
           <span>Новое значение</span>
-          <input name={inputId} placeholder={`Добавить: ${title}`} />
+          <input name={inputName} placeholder={`Добавить: ${title}`} required />
         </label>
         <button className="primary" type="submit">Добавить</button>
       </form>
@@ -71,11 +72,7 @@ function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
 export default function DirectoriesPage({ directories, onCreate, onUpdate, onDelete }) {
   return (
     <section>
-      <SectionHeader
-        title="Справочники"
-        subtitle="Подразделения и проекты"
-      />
-
+      <SectionHeader title="Справочники" subtitle="Подразделения и проекты" />
       <div className="grid-cards">
         {KINDS.map((item) => (
           <DirectoryBlock

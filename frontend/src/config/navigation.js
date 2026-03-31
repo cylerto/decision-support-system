@@ -15,11 +15,6 @@
     items: [{ key: 'structure', label: 'Статьи / Подразделения (опц.) / Проекты (опц.)', icon: 'structure' }]
   },
   {
-    title: 'Бюджет',
-    icon: 'BG',
-    items: [{ key: 'budget_limits', label: 'Бюджеты / Лимиты', icon: 'limit' }]
-  },
-  {
     title: 'Аналитика',
     icon: 'AI',
     items: [{ key: 'analytics', label: 'Аналитика и решения', icon: 'analytics' }]
@@ -27,27 +22,20 @@
   {
     title: 'Система',
     icon: 'SYS',
-    items: [
-      { key: 'data', label: 'Импорт / Экспорт', icon: 'data' },
-      { key: 'history', label: 'История действий', icon: 'history' },
-      { key: 'settings', label: 'Настройки', icon: 'settings' }
-    ]
+    items: [{ key: 'system', label: 'Система', icon: 'settings' }]
   }
 ]
 
 export const ANALYTICS_TABS = [
   { key: 'summary', label: 'Сводка' },
   { key: 'monthly', label: 'Динамика по месяцам' },
-  { key: 'budget', label: 'Бюджет vs факт' },
-  { key: 'insights', label: 'Прогноз и рекомендации' },
-  { key: 'ai_recommendations', label: 'AI-рекомендации' }
+  { key: 'insights', label: 'Рекомендации и анализ' }
 ]
 
 export const QUICK_ACTIONS = [
   { key: 'income', label: '+ Выручка', action: { type: 'create', entity: 'income' } },
   { key: 'expense', label: '+ Затрата', action: { type: 'create', entity: 'expense' } },
-  { key: 'category', label: '+ Статья P&L', action: { type: 'create', entity: 'category' } },
-  { key: 'limit', label: '+ Лимит', action: { type: 'limit' } }
+  { key: 'category', label: '+ Статья P&L', action: { type: 'create', entity: 'category' } }
 ]
 
 export const ROUTE_BY_KEY = {
@@ -55,12 +43,12 @@ export const ROUTE_BY_KEY = {
   operations: '/operations',
   structure: '/structure',
   analytics: '/analytics',
-  budget_limits: '/budget-limits',
+  system: '/system',
+
+  // legacy routes for backward compatibility
   data: '/data',
   history: '/history',
   settings: '/settings',
-
-  // legacy routes for backward compatibility
   income: '/income',
   expense: '/expense',
   categories: '/categories',
@@ -68,7 +56,6 @@ export const ROUTE_BY_KEY = {
   projects: '/projects',
   analytics_monthly: '/analytics/monthly',
   analytics_structure: '/analytics/structure',
-  analytics_budget: '/analytics/budget',
   forecast: '/forecast',
   recommendations: '/recommendations'
 }

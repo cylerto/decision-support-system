@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+﻿const API_BASE = import.meta.env.VITE_API_URL ?? "";
 let formatCurrency = "RUB";
 let formatTimezone = "UTC";
 
@@ -40,17 +40,6 @@ async function apiRequest(path, options = {}) {
   }
 
   return payload;
-}
-
-async function tryRequest(path, options) {
-  try {
-    return await apiRequest(path, options);
-  } catch (error) {
-    if (error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
 }
 
 function buildQuery(params = {}) {
@@ -116,7 +105,6 @@ export const api = {
   getDashboard: () => apiRequest("/api/analytics/dashboard"),
   getKpi: () => apiRequest("/api/analytics/kpi"),
   getSegments: () => apiRequest("/api/analytics/segments"),
-  getBudgetVsActual: () => apiRequest("/api/analytics/budget-vs-actual"),
   getBaselineMonthly: () => apiRequest("/api/analytics/baseline/monthly"),
   getFormatSettings: () => apiRequest("/api/analytics/format"),
   runScenario: (data) => apiRequest("/api/analytics/scenario", { method: "POST", body: data }),
@@ -125,48 +113,6 @@ export const api = {
   getAiRecommendations: (financialData) => apiRequest("/api/ai/recommendations", { method: "POST", body: financialData }),
 
   getRecommendations: () => apiRequest("/api/recommendations"),
-
-  getLimits: async () => {
-    const primary = await tryRequest("/api/limits");
-    if (primary) {
-      return primary.map((item) => ({
-        category_id: item.category_id,
-        monthly_limit: item.monthly_limit ?? item.limit
-      }));
-    }
-
-    const fallback = await apiRequest("/api/category-limits");
-    return fallback.map((item) => ({
-      category_id: item.category_id,
-      monthly_limit: item.monthly_limit ?? item.limit
-    }));
-  },
-
-  saveLimit: async ({ category_id, monthly_limit }) => {
-    const payload = {
-      category_id,
-      monthly_limit,
-      limit: monthly_limit
-    };
-
-    const primary = await tryRequest("/api/limits", {
-      method: "POST",
-      body: payload
-    });
-
-    if (primary !== null) {
-      return primary;
-    }
-
-    return apiRequest("/api/category-limits", {
-      method: "POST",
-      body: { category_id, limit: monthly_limit }
-    });
-  },
-
-  getBudgets: (year) => apiRequest(`/api/budgets${year ? `?year=${year}` : ""}`),
-  saveBudget: (data) => apiRequest("/api/budgets", { method: "POST", body: data }),
-  deleteBudget: (id) => apiRequest(`/api/budgets/${id}`, { method: "DELETE" }),
 
   getSettings: () => apiRequest("/api/settings"),
   updateSettings: (data) => apiRequest("/api/settings", { method: "PUT", body: data }),
@@ -211,3 +157,5 @@ export function formatDate(value) {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("ru-RU", { timeZone: formatTimezone });
 }
+
+

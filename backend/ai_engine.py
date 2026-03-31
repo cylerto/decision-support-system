@@ -1,4 +1,4 @@
-import os
+﻿import os
 from pathlib import Path
 import time
 
@@ -140,17 +140,20 @@ def generate_recommendations(financial_data: dict) -> str:
         raise RuntimeError("API key is missing in environment variables")
 
     system_prompt = (
-        "Ты аналитическая модель в системе поддержки принятия решений для малого предприятия. "
-        "Ты не считаешь данные — ты анализируешь их и формируешь управленческие рекомендации."
+        "You are an analytical assistant for a small business decision-support system. "
+        "You do not calculate numbers; you interpret already calculated indicators and suggest actions. "
+        "Respond in Russian language. "
+        "Output plain text only. Do not use markdown symbols (#, **, *, tables)."
     )
     user_prompt = (
-        "Вот показатели предприятия:\n"
+        "Here are enterprise indicators:\n"
         f"{_dict_to_readable_text(financial_data)}\n\n"
-        "Сформируй:\n"
-        "1. Общую оценку текущего финансового состояния\n"
-        "2. Основные риски\n"
-        "3. Конкретные управленческие рекомендации\n"
-        "4. Краткий вывод"
+        "Generate concise response in Russian in this structure:\n"
+        "1) Общая оценка финансового состояния.\n"
+        "2) Основные риски (2-4 пункта).\n"
+        "3) Управленческие рекомендации (3-6 пунктов, формат: Проблема - Причина - Действие).\n"
+        "4) Краткий вывод (1-2 предложения).\n"
+        "Use practical wording."
     )
 
     if provider == "deepseek":
@@ -206,8 +209,8 @@ def generate_recommendations(financial_data: dict) -> str:
 
     # Soft fallback text to avoid 502 on free-tier throttling.
     return (
-        "AI-сервис временно перегружен (лимит free-модели). "
-        "Рекомендация: повторите запрос через 30-60 секунд, "
-        "или снизьте частоту генерации. "
-        f"Провайдер: {provider}. Техническая деталь: {last_error}"
+        "AI-СЃРµСЂРІРёСЃ РІСЂРµРјРµРЅРЅРѕ РїРµСЂРµРіСЂСѓР¶РµРЅ (Р»РёРјРёС‚ free-РјРѕРґРµР»Рё). "
+        "Р РµРєРѕРјРµРЅРґР°С†РёСЏ: РїРѕРІС‚РѕСЂРёС‚Рµ Р·Р°РїСЂРѕСЃ С‡РµСЂРµР· 30-60 СЃРµРєСѓРЅРґ, "
+        "РёР»Рё СЃРЅРёР·СЊС‚Рµ С‡Р°СЃС‚РѕС‚Сѓ РіРµРЅРµСЂР°С†РёРё. "
+        f"РџСЂРѕРІР°Р№РґРµСЂ: {provider}. РўРµС…РЅРёС‡РµСЃРєР°СЏ РґРµС‚Р°Р»СЊ: {last_error}"
     )
