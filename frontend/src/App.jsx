@@ -578,7 +578,22 @@ export default function App() {
   const deleteDirectory = (kind, id) => guard('directories', async () => {
     const confirmed = await askDeleteConfirm('Удалить элемент справочника?')
     if (!confirmed) return
-    await api.deleteDirectory(kind, id)
+    try {
+      await api.deleteDirectory(kind, id)
+    } catch (error) {
+      if (error?.payload?.code === 'DIRECTORY_IN_USE') {
+        const usage = error?.payload?.details?.usage || {}
+        const incomeCount = Number(usage.income || 0)
+        const expenseCount = Number(usage.expense || 0)
+        const total = Number(error?.payload?.details?.total_operations || (incomeCount + expenseCount))
+        addAlert(
+          `Удаление невозможно: элемент используется в ${total} операциях (доходы: ${incomeCount}, расходы: ${expenseCount}).`,
+          'danger'
+        )
+        return
+      }
+      throw error
+    }
     await refreshDirectories()
     await refreshAudit()
     addAlert('Элемент удален', 'success')

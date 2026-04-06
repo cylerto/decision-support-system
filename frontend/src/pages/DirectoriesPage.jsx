@@ -47,7 +47,7 @@ function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
                   <td data-label="Название">{row.name}</td>
                   <td data-label="Действия" className="table-actions">
                     <button
-                      className="ghost"
+                      className="ghost btn-secondary action-edit"
                       type="button"
                       onClick={() => {
                         const next = window.prompt('Новое название', row.name)
@@ -57,7 +57,7 @@ function DirectoryBlock({ kind, title, rows, onCreate, onUpdate, onDelete }) {
                     >
                       Редактировать
                     </button>
-                    <button className="ghost danger" type="button" onClick={() => onDelete(kind, row.id)}>Удалить</button>
+                    <button className="ghost danger btn-danger action-delete" type="button" onClick={() => onDelete(kind, row.id)}>Удалить</button>
                   </td>
                 </tr>
               ))}

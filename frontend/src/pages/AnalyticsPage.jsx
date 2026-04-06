@@ -25,11 +25,17 @@ function cleanMarkdown(text) {
 
 function parseRecommendationText(text) {
   if (!text) return []
-  const normalized = cleanMarkdown(text)
-  return normalized
+  return cleanMarkdown(text)
     .split(/\n{2,}/)
     .map((block) => block.replace(/\n/g, ' ').trim())
     .filter(Boolean)
+}
+
+function classifyRecommendation(text) {
+  const value = String(text || '').toLowerCase()
+  if (/(риск|убыт|крит|сниж|дефицит|перерасход|паден)/.test(value)) return { key: 'risk', label: 'Риск' }
+  if (/(рост|возможн|усил|увелич|потенциал|масштаб)/.test(value)) return { key: 'opportunity', label: 'Возможность' }
+  return { key: 'action', label: 'Действие' }
 }
 
 export default function AnalyticsPage({
@@ -68,7 +74,9 @@ export default function AnalyticsPage({
 
   const baseRecommendations = (recommendations?.recommendations || []).map(cleanMarkdown).filter(Boolean)
   const aiPoints = useMemo(() => parseRecommendationText(aiRecommendationsText), [aiRecommendationsText])
-  const recommendationItems = aiPoints.length ? aiPoints : baseRecommendations
+  const recommendationItems = (aiPoints.length ? aiPoints : baseRecommendations)
+    .map((text) => ({ text, kind: classifyRecommendation(text) }))
+    .slice(0, 8)
 
   const monthlyRows = useMemo(() => (
     monthLabels.map((month) => {
@@ -78,15 +86,8 @@ export default function AnalyticsPage({
     })
   ), [monthLabels, monthMap])
 
-  const bestProfit = useMemo(() => {
-    if (!monthlyRows.length) return null
-    return monthlyRows.reduce((best, row) => (best === null || row.profit > best.profit ? row : best), null)
-  }, [monthlyRows])
-
-  const worstProfit = useMemo(() => {
-    if (!monthlyRows.length) return null
-    return monthlyRows.reduce((worst, row) => (worst === null || row.profit < worst.profit ? row : worst), null)
-  }, [monthlyRows])
+  const bestProfit = useMemo(() => monthlyRows.reduce((best, row) => (best === null || row.profit > best.profit ? row : best), null), [monthlyRows])
+  const worstProfit = useMemo(() => monthlyRows.reduce((worst, row) => (worst === null || row.profit < worst.profit ? row : worst), null), [monthlyRows])
 
   const baseChartOptions = {
     maintainAspectRatio: false,
@@ -102,12 +103,12 @@ export default function AnalyticsPage({
         callbacks: { label: (ctx) => `${ctx.dataset.label}: ${toMoney(ctx.raw)}` }
       }
     },
-    elements: { line: { tension: 0.35, borderWidth: 3 }, point: { radius: 3, hoverRadius: 5 } },
+    elements: { line: { tension: 0.35, borderWidth: 3.5 }, point: { radius: 3.2, hoverRadius: 6 } },
     scales: {
-      x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+      x: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.08)' } },
       y: {
         ticks: { color: '#94a3b8', callback: (value) => formatCompactMoney(value) },
-        grid: { color: 'rgba(148,163,184,0.1)' }
+        grid: { color: 'rgba(148,163,184,0.08)' }
       }
     }
   }
@@ -153,7 +154,7 @@ export default function AnalyticsPage({
     <section>
       <SectionHeader
         title="Аналитика и решения"
-        subtitle="Финансовая динамика, прогноз, AI-рекомендации и сценарный анализ в одном месте"
+        subtitle="Финансовая динамика, прогноз, AI-рекомендации и сценарный анализ"
         actions={
           <div className="section-actions">
             <select value={analyticsWindow} onChange={(event) => setAnalyticsWindow(event.target.value)}>
@@ -170,8 +171,8 @@ export default function AnalyticsPage({
       <div className="insights-hero">
         <article className="insights-kpi"><span>Выручка</span><strong className="tone-income">{toMoney(summaryValues.income)}</strong></article>
         <article className="insights-kpi"><span>Затраты</span><strong className="tone-expense">{toMoney(summaryValues.expense)}</strong></article>
-        <article className="insights-kpi"><span>Прибыль</span><strong>{toMoney(summaryValues.balance)}</strong></article>
-        <article className="insights-kpi"><span>Рентабельность / Темп расходов</span><strong>{savingsRate.toFixed(1)}% / {burnRate.toFixed(1)}%</strong></article>
+        <article className="insights-kpi insights-kpi-main"><span>Прибыль</span><strong>{toMoney(summaryValues.balance)}</strong></article>
+        <article className="insights-kpi"><span>Рентабельность / Темп затрат</span><strong>{savingsRate.toFixed(1)}% / {burnRate.toFixed(1)}%</strong></article>
       </div>
 
       <div className="analytics-tabs sticky-tabs">
@@ -186,9 +187,7 @@ export default function AnalyticsPage({
         <div className="grid-cards insights-summary-grid">
           <div className="card">
             <h3>Финансовый баланс</h3>
-            {monthLabels.length === 0 ? (
-              <EmptyState title="Нет данных" description="Добавьте операции для построения графика" />
-            ) : (
+            {monthLabels.length === 0 ? <EmptyState title="Нет данных" description="Добавьте операции для построения графика" /> : (
               <div className="chart-wrap chart-md">
                 <Line options={baseChartOptions} data={{ labels: monthLabels, datasets: [
                   { label: 'Выручка', data: monthLabels.map((key) => monthMap[key]?.income || 0), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', fill: true },
@@ -231,9 +230,7 @@ export default function AnalyticsPage({
 
       {activeTab === 'monthly' && (
         <div className="card">
-          {monthLabels.length === 0 ? (
-            <EmptyState title="Нет данных" description="Добавьте операции для построения графика" />
-          ) : (
+          {monthLabels.length === 0 ? <EmptyState title="Нет данных" description="Добавьте операции для построения графика" /> : (
             <>
               <div className="monthly-controls">
                 <div className="mode-switch">
@@ -242,12 +239,10 @@ export default function AnalyticsPage({
                 </div>
                 <label className="check-pill"><input type="checkbox" checked={showProfit} onChange={(e) => setShowProfit(e.target.checked)} />Показывать прибыль</label>
               </div>
-
               <div className="monthly-highlights">
                 <div className="highlight-item"><span>Лучший месяц</span><strong>{bestProfit ? `${bestProfit.month} - ${toMoney(bestProfit.profit)}` : '—'}</strong></div>
                 <div className="highlight-item"><span>Худший месяц</span><strong>{worstProfit ? `${worstProfit.month} - ${toMoney(worstProfit.profit)}` : '—'}</strong></div>
               </div>
-
               <div className="chart-wrap chart-lg">
                 {monthlyMode === 'line'
                   ? <Line options={baseChartOptions} data={{ labels: monthLabels, datasets: monthlyDatasets }} />
@@ -268,18 +263,9 @@ export default function AnalyticsPage({
 
             {forecast?.series ? (
               <div className="forecast-kpis">
-                <article className="forecast-kpi income">
-                  <span>Ожидаемая выручка (след. месяц)</span>
-                  <strong>{toMoney(nextIncome)}</strong>
-                </article>
-                <article className="forecast-kpi expense">
-                  <span>Ожидаемые затраты (след. месяц)</span>
-                  <strong>{toMoney(nextExpense)}</strong>
-                </article>
-                <article className="forecast-kpi profit">
-                  <span>Ожидаемая прибыль</span>
-                  <strong>{toMoney(nextProfit)}</strong>
-                </article>
+                <article className="forecast-kpi income"><span>Ожидаемая выручка (след. месяц)</span><strong>{toMoney(nextIncome)}</strong></article>
+                <article className="forecast-kpi expense"><span>Ожидаемые затраты (след. месяц)</span><strong>{toMoney(nextExpense)}</strong></article>
+                <article className="forecast-kpi profit"><span>Ожидаемая прибыль</span><strong>{toMoney(nextProfit)}</strong></article>
               </div>
             ) : (
               <EmptyState title="Недостаточно данных для прогноза" description={forecast?.message || 'Добавьте операции минимум в двух разных месяцах'} />
@@ -297,7 +283,6 @@ export default function AnalyticsPage({
                   <input type="number" value={scenarioInput.expense_change_pct} onChange={(e) => setScenarioInput((p) => ({ ...p, expense_change_pct: Number(e.target.value) }))} />
                 </label>
               </div>
-
               {scenarioLoading ? <p className="hint">Расчет сценария...</p> : scenarioResult ? (
                 <div className="scenario-results">
                   <div><span>Базовая прибыль</span><strong>{toMoney(scenarioResult.base.profit)}</strong></div>
@@ -315,20 +300,19 @@ export default function AnalyticsPage({
                 {aiRecommendationsLoading ? 'Генерация...' : 'Обновить AI-рекомендации'}
               </button>
             </div>
-
-            {recommendationItems.length === 0 ? (
-              <EmptyState title="Рекомендаций пока нет" description="Добавьте больше операций и сгенерируйте AI-анализ" />
-            ) : (
+            {recommendationItems.length === 0 ? <EmptyState title="Рекомендаций пока нет" description="Добавьте больше операций и сгенерируйте AI-анализ" /> : (
               <div className="recommendation-grid">
                 {recommendationItems.map((item, index) => (
-                  <article key={`${item}-${index}`} className="recommendation-card">
+                  <article key={`${item.text}-${index}`} className={`recommendation-card recommendation-${item.kind.key}`}>
                     <span className="recommendation-index">{String(index + 1).padStart(2, '0')}</span>
-                    <p>{item}</p>
+                    <div className="recommendation-content">
+                      <span className={`recommendation-kind recommendation-kind-${item.kind.key}`}>{item.kind.label}</span>
+                      <p>{item.text}</p>
+                    </div>
                   </article>
                 ))}
               </div>
             )}
-
           </div>
         </div>
       )}

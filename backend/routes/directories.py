@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy import func
 
 from ..extensions import db
 from ..models import Department, OperationDimension, Project
@@ -79,13 +80,32 @@ def delete_directory(kind, row_id):
     if not row:
         return jsonify({"message": "Not found"}), 404
 
+    usage_query = (
+        db.session.query(
+            OperationDimension.transaction_type.label("transaction_type"),
+            func.count(OperationDimension.id).label("cnt"),
+        )
+        .filter(OperationDimension.user_id == current_user.id)
+    )
     if kind == "departments":
-        in_use = OperationDimension.query.filter_by(user_id=current_user.id, department_id=row_id).first()
+        usage_query = usage_query.filter(OperationDimension.department_id == row_id)
     else:
-        in_use = OperationDimension.query.filter_by(user_id=current_user.id, project_id=row_id).first()
+        usage_query = usage_query.filter(OperationDimension.project_id == row_id)
 
-    if in_use:
-        return jsonify({"message": "Directory is in use"}), 400
+    usage_rows = usage_query.group_by(OperationDimension.transaction_type).all()
+    if usage_rows:
+        usage = {row.transaction_type: int(row.cnt) for row in usage_rows}
+        total = sum(usage.values())
+        return jsonify({
+            "message": f"Нельзя удалить: элемент используется в {total} операциях.",
+            "code": "DIRECTORY_IN_USE",
+            "details": {
+                "kind": kind,
+                "id": row_id,
+                "usage": usage,
+                "total_operations": total,
+            },
+        }), 400
 
     db.session.delete(row)
     log_action("delete", kind[:-1], row.id)

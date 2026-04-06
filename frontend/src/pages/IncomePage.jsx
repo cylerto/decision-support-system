@@ -28,7 +28,8 @@ export default function IncomePage({
           actions={<button className="primary" onClick={onOpenCreate}>Добавить выручку</button>}
         />
       )}
-      <div className="card table-controls sticky-filters">
+
+      <div className="card table-controls sticky-filters filter-bar">
         <label className="field compact">
           <span>С даты</span>
           <input type="date" value={filter.dateFrom || ''} onChange={(event) => setFilter((prev) => ({ ...prev, page: 1, dateFrom: event.target.value }))} />
@@ -98,17 +99,17 @@ export default function IncomePage({
                   <td data-label="Сумма" className="tone-income">{toMoney(item.amount)}</td>
                   <td data-label="Комментарий">{item.note || '—'}</td>
                   <td data-label="Действия" className="table-actions">
-                    <button className="ghost" onClick={() => onOpenEdit(item)}>Редактировать</button>
-                    <button className="ghost danger" onClick={() => onRemove(item.id)}>Удалить</button>
+                    <button className="ghost btn-secondary action-edit" onClick={() => onOpenEdit(item)}>Редактировать</button>
+                    <button className="ghost danger btn-danger action-delete" onClick={() => onRemove(item.id)}>Удалить</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="pagination">
-            <button className="ghost" disabled={(meta?.page || 1) <= 1} onClick={() => setFilter((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}>Назад</button>
+            <button className="ghost btn-secondary" disabled={(meta?.page || 1) <= 1} onClick={() => setFilter((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }))}>Назад</button>
             <span>Страница {meta?.page || 1} из {totalPages}</span>
-            <button className="ghost" disabled={(meta?.page || 1) >= totalPages} onClick={() => setFilter((prev) => ({ ...prev, page: Math.min(totalPages, prev.page + 1) }))}>Вперед</button>
+            <button className="ghost btn-secondary" disabled={(meta?.page || 1) >= totalPages} onClick={() => setFilter((prev) => ({ ...prev, page: Math.min(totalPages, prev.page + 1) }))}>Вперед</button>
           </div>
         </div>
       )}

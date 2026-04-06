@@ -187,6 +187,18 @@ export default function DashboardPage({
     <section>
       <SectionHeader title="Дашборд" subtitle="Единый управленческий цикл" actions={<button className="ghost" onClick={onRefresh}>Обновить</button>} />
 
+      <div className="card dashboard-hero">
+        <div>
+          <span className="dashboard-hero-label">Главный KPI</span>
+          <h3>Текущая прибыль</h3>
+          <strong className={summaryValues.balance >= 0 ? 'tone-income' : 'tone-expense'}>{toMoney(summaryValues.balance)}</strong>
+        </div>
+        <div className="dashboard-hero-meta">
+          <span className={`status-badge ${summaryValues.balance >= 0 ? 'safe' : 'danger'}`}>{summaryValues.balance >= 0 ? 'Положительный результат' : 'Отрицательный результат'}</span>
+          <p className="hint">Остаток месяца: {toMoney(remainingToMonthEnd)}</p>
+        </div>
+      </div>
+
       <div className="grid-cards metrics-cards">
         <div className="card metric-card income"><span>Доходы</span><strong>{toMoney(summaryValues.income)}</strong><em className={`trend ${trendTone(trends.income)}`}>{trends.income >= 0 ? '^' : 'v'} {Math.abs(trends.income).toFixed(1)}%</em></div>
         <div className="card metric-card expense"><span>Расходы</span><strong>{toMoney(summaryValues.expense)}</strong><em className={`trend ${trendTone(trends.expense)}`}>{trends.expense >= 0 ? '^' : 'v'} {Math.abs(trends.expense).toFixed(1)}%</em></div>
