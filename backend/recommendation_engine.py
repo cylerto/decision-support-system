@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 from urllib import error, request
 
@@ -45,11 +45,12 @@ def _call_openai(payload):
         "Формат: "
         "{\"alerts\": string[], \"recommendations\": string[], "
         "\"detailed\": [{\"type\":\"alert|tip\",\"priority\":\"high|medium|low\","
-        "\"message\": string, \"reason\": string}]}. "
-        "Рекомендации должны быть конкретными управленческими действиями."
+        "\"problem\": string, \"cause\": string, \"action\": string}]}. "
+        "Каждый пункт detailed обязан быть в формате: проблема, причина, действие."
     )
     user_prompt = (
         "На основе данных сформируй управленческие рекомендации.\n"
+        "Сначала определи ключевые риски, затем предложи конкретные управленческие действия.\n"
         f"DATA:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 
@@ -135,8 +136,11 @@ def build_recommendations(user_id):
             {
                 "type": str(item.get("type", "tip")),
                 "priority": str(item.get("priority", "medium")),
-                "message": str(item.get("message", "")),
-                "reason": str(item.get("reason", "")),
+                "problem": str(item.get("problem", item.get("message", ""))),
+                "cause": str(item.get("cause", item.get("reason", ""))),
+                "action": str(item.get("action", item.get("recommendation", ""))),
+                "message": str(item.get("problem", item.get("message", ""))),
+                "reason": str(item.get("cause", item.get("reason", ""))),
             }
             for item in detailed
         ],

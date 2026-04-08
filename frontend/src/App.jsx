@@ -175,6 +175,10 @@ export default function App() {
   const [forecast, setForecast] = useState(null)
   const [recommendations, setRecommendations] = useState(null)
   const [baselineMonthly, setBaselineMonthly] = useState([])
+  const [budgetVsActual, setBudgetVsActual] = useState([])
+  const [profitByDepartments, setProfitByDepartments] = useState([])
+  const [profitByProjects, setProfitByProjects] = useState([])
+  const [financialStability, setFinancialStability] = useState(null)
   const [dataQuality, setDataQuality] = useState(null)
   const [kpi, setKpi] = useState(null)
   const [aiRecommendationsText, setAiRecommendationsText] = useState('')
@@ -350,13 +354,31 @@ export default function App() {
   })
 
   const refreshCore = () => guard('core', async () => {
-    const [summaryData, monthlyData, categoriesMonthlyData, recommendationsData, forecastData, baselineData, qualityData, kpiData, formatData] = await Promise.all([
+    const [
+      summaryData,
+      monthlyData,
+      categoriesMonthlyData,
+      recommendationsData,
+      forecastData,
+      baselineData,
+      budgetVsActualData,
+      profitDepartmentsData,
+      profitProjectsData,
+      stabilityData,
+      qualityData,
+      kpiData,
+      formatData
+    ] = await Promise.all([
       api.getSummary(),
       api.getMonthly(),
       api.getCategoriesMonthly(),
       api.getRecommendations(),
       safeForecastLoad(6),
       api.getBaselineMonthly(),
+      api.getBudgetVsActual(),
+      api.getProfitByDepartments(),
+      api.getProfitByProjects(),
+      api.getFinancialStability(),
       api.getDataQuality(),
       api.getKpi(),
       api.getFormatSettings()
@@ -367,6 +389,10 @@ export default function App() {
     setRecommendations(recommendationsData)
     setForecast(forecastData)
     setBaselineMonthly(baselineData || [])
+    setBudgetVsActual(budgetVsActualData || [])
+    setProfitByDepartments(profitDepartmentsData || [])
+    setProfitByProjects(profitProjectsData || [])
+    setFinancialStability(stabilityData || null)
     setDataQuality(qualityData || null)
     setKpi(kpiData)
     configureFormatting(formatData || {})
@@ -983,6 +1009,10 @@ export default function App() {
       forecast={forecast}
       recommendations={recommendations}
       baselineMonthly={baselineMonthly}
+      budgetVsActual={budgetVsActual}
+      profitByDepartments={profitByDepartments}
+      profitByProjects={profitByProjects}
+      financialStability={financialStability}
       dataQuality={dataQuality}
       aiRecommendationsText={aiRecommendationsText}
       aiRecommendationsLoading={aiRecommendationsLoading}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { Bar, Line } from 'react-chartjs-2'
 import { toMoney } from '../api.js'
 import SectionHeader from '../shared/ui/SectionHeader.jsx'
@@ -38,6 +38,16 @@ function classifyRecommendation(text) {
   return { key: 'action', label: 'Действие' }
 }
 
+function budgetStatus(row) {
+  const planned = Number(row?.planned_expense || 0)
+  const actual = Number(row?.actual_expense || 0)
+  if (planned <= 0) return { tone: 'neutral', label: 'План не задан', pct: 0 }
+  const pct = (actual / planned) * 100
+  if (pct <= 100) return { tone: 'safe', label: 'В пределах бюджета', pct }
+  if (pct <= 110) return { tone: 'warning', label: 'Зона риска', pct }
+  return { tone: 'danger', label: 'Перерасход', pct }
+}
+
 export default function AnalyticsPage({
   tabs,
   activeTab,
@@ -53,6 +63,10 @@ export default function AnalyticsPage({
   forecast,
   recommendations,
   baselineMonthly,
+  budgetVsActual,
+  profitByDepartments,
+  profitByProjects,
+  financialStability,
   dataQuality,
   aiRecommendationsText,
   aiRecommendationsLoading,
@@ -71,10 +85,18 @@ export default function AnalyticsPage({
   const nextIncome = forecastIncome[0]?.prediction || 0
   const nextExpense = forecastExpense[0]?.prediction || 0
   const nextProfit = nextIncome - nextExpense
+  const stability = forecast?.stability || financialStability
 
-  const baseRecommendations = (recommendations?.recommendations || []).map(cleanMarkdown).filter(Boolean)
   const aiPoints = useMemo(() => parseRecommendationText(aiRecommendationsText), [aiRecommendationsText])
-  const recommendationItems = (aiPoints.length ? aiPoints : baseRecommendations)
+  const structuredRecommendations = (recommendations?.detailed || []).map((item) => ({
+    problem: cleanMarkdown(item.problem || item.message || ''),
+    cause: cleanMarkdown(item.cause || item.reason || ''),
+    action: cleanMarkdown(item.action || ''),
+    priority: item.priority || 'medium',
+    type: item.type || 'tip'
+  })).filter((item) => item.problem || item.cause || item.action)
+
+  const plainAiRecommendations = aiPoints
     .map((text) => ({ text, kind: classifyRecommendation(text) }))
     .slice(0, 8)
 
@@ -154,7 +176,7 @@ export default function AnalyticsPage({
     <section>
       <SectionHeader
         title="Аналитика и решения"
-        subtitle="Финансовая динамика, прогноз, AI-рекомендации и сценарный анализ"
+        subtitle="Финансовая динамика, бюджетный контроль, прогноз и управленческие рекомендации"
         actions={(
           <div className="section-actions">
             <select value={analyticsWindow} onChange={(event) => setAnalyticsWindow(event.target.value)}>
@@ -198,6 +220,52 @@ export default function AnalyticsPage({
           </div>
 
           <div className="card">
+            <h3>Финансовая устойчивость</h3>
+            <p>Состояние: <strong>{stability?.state || 'не обнаружено в проекте'}</strong></p>
+            <p>profit margin: <strong>{stability?.metrics?.profit_margin_pct ?? 0}%</strong></p>
+            <p>Темп роста затрат: <strong>{stability?.metrics?.expense_growth_pct ?? 0}%</strong></p>
+            <p>Отклонение бюджета: <strong>{stability?.metrics?.budget_deviation_pct ?? 0}%</strong></p>
+          </div>
+
+          <div className="card table-card">
+            <h3>Прибыль по подразделениям</h3>
+            {!(profitByDepartments || []).length ? <EmptyState title="Нет данных" description="Добавьте операции с подразделениями" /> : (
+              <table>
+                <thead><tr><th>Подразделение</th><th>Доход</th><th>Расход</th><th>Прибыль</th></tr></thead>
+                <tbody>
+                  {profitByDepartments.map((row) => (
+                    <tr key={`dept-${row.department_id ?? 'none'}`}>
+                      <td>{row.department_name}</td>
+                      <td>{toMoney(row.income)}</td>
+                      <td>{toMoney(row.expense)}</td>
+                      <td className={Number(row.profit) >= 0 ? 'tone-income' : 'tone-expense'}>{toMoney(row.profit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card table-card">
+            <h3>Прибыль по проектам</h3>
+            {!(profitByProjects || []).length ? <EmptyState title="Нет данных" description="Добавьте операции с проектами" /> : (
+              <table>
+                <thead><tr><th>Проект</th><th>Доход</th><th>Расход</th><th>Прибыль</th></tr></thead>
+                <tbody>
+                  {profitByProjects.map((row) => (
+                    <tr key={`project-${row.project_id ?? 'none'}`}>
+                      <td>{row.project_name}</td>
+                      <td>{toMoney(row.income)}</td>
+                      <td>{toMoney(row.expense)}</td>
+                      <td className={Number(row.profit) >= 0 ? 'tone-income' : 'tone-expense'}>{toMoney(row.profit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
             <h3>Качество данных</h3>
             <p>Доходы без категории: <strong>{dataQuality?.issues?.uncategorized_income ?? 0}</strong></p>
             <p>Затраты без категории: <strong>{dataQuality?.issues?.uncategorized_expense ?? 0}</strong></p>
@@ -205,25 +273,6 @@ export default function AnalyticsPage({
             <p>Затраты без подразделения: <strong>{dataQuality?.issues?.missing_expense_department ?? 0}</strong></p>
             <p>Всего проблем: <strong>{dataQuality?.total_issues ?? 0}</strong></p>
             <button className="ghost" onClick={onFixDataQuality}>Исправить автоматически</button>
-          </div>
-
-          <div className="card table-card">
-            <h3>Базовые метрики по месяцам</h3>
-            {!(baselineMonthly || []).length ? <EmptyState title="Нет baseline-данных" description="Появятся после добавления операций" /> : (
-              <table>
-                <thead><tr><th>Месяц</th><th>Рентабельность</th><th>Темп расходов</th><th>Отклонение бюджета</th></tr></thead>
-                <tbody>
-                  {baselineMonthly.map((row) => (
-                    <tr key={row.month}>
-                      <td data-label="Месяц">{row.month}</td>
-                      <td data-label="Рентабельность">{row.profit_margin_pct}%</td>
-                      <td data-label="Темп расходов">{row.burn_rate_pct}%</td>
-                      <td data-label="Отклонение бюджета">{toMoney(row.budget_deviation)} ({row.budget_deviation_pct}%)</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
           </div>
         </div>
       )}
@@ -249,6 +298,48 @@ export default function AnalyticsPage({
                   : <Bar options={barOptions} data={{ labels: monthLabels, datasets: monthlyDatasets }} />}
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'budget' && (
+        <div className="card table-card">
+          <h3>Бюджетный контроль (план / факт)</h3>
+          {!(budgetVsActual || []).length ? (
+            <EmptyState title="Нет данных бюджета" description="Добавьте месячные бюджеты и операции" />
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Месяц</th>
+                  <th>План затрат</th>
+                  <th>Факт затрат</th>
+                  <th>Отклонение</th>
+                  <th>Выполнение</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {budgetVsActual.map((row) => {
+                  const planned = Number(row.planned_expense || 0)
+                  const actual = Number(row.actual_expense || 0)
+                  const deviation = actual - planned
+                  const status = budgetStatus(row)
+                  return (
+                    <tr key={`budget-${row.month}`}>
+                      <td>{row.month}</td>
+                      <td>{toMoney(planned)}</td>
+                      <td>{toMoney(actual)}</td>
+                      <td className={deviation > 0 ? 'tone-expense' : 'tone-income'}>{toMoney(deviation)}</td>
+                      <td>{status.pct.toFixed(1)}%</td>
+                      <td>
+                        <span className={`status-badge ${status.tone}`}>{status.label}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           )}
         </div>
       )}
@@ -294,15 +385,30 @@ export default function AnalyticsPage({
           </div>
 
           <div className="card">
-            <div className="recommendations-head">
-              <h3>Рекомендации и анализ</h3>
+              <div className="recommendations-head">
+                <h3>Рекомендации (Проблема - Причина - Действие)</h3>
               <button className="primary" onClick={onGenerateAiRecommendations} disabled={aiRecommendationsLoading}>
                 {aiRecommendationsLoading ? 'Генерация...' : 'Обновить AI-рекомендации'}
               </button>
             </div>
-            {recommendationItems.length === 0 ? <EmptyState title="Рекомендаций пока нет" description="Добавьте больше операций и сгенерируйте AI-анализ" /> : (
+
+            {structuredRecommendations.length > 0 ? (
               <div className="recommendation-grid">
-                {recommendationItems.map((item, index) => (
+                {structuredRecommendations.map((item, index) => (
+                  <article key={`rec-structured-${index}`} className={`recommendation-card recommendation-${item.type === 'alert' ? 'risk' : 'action'}`}>
+                    <span className="recommendation-index">{String(index + 1).padStart(2, '0')}</span>
+                    <div className="recommendation-content">
+                      <span className={`recommendation-kind recommendation-kind-${item.type === 'alert' ? 'risk' : 'action'}`}>{item.priority}</span>
+                      <p><strong>Проблема:</strong> {item.problem || '—'}</p>
+                      <p><strong>Причина:</strong> {item.cause || '—'}</p>
+                      <p><strong>Действие:</strong> {item.action || '—'}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : plainAiRecommendations.length > 0 ? (
+              <div className="recommendation-grid">
+                {plainAiRecommendations.map((item, index) => (
                   <article key={`${item.text}-${index}`} className={`recommendation-card recommendation-${item.kind.key}`}>
                     <span className="recommendation-index">{String(index + 1).padStart(2, '0')}</span>
                     <div className="recommendation-content">
@@ -312,6 +418,8 @@ export default function AnalyticsPage({
                   </article>
                 ))}
               </div>
+            ) : (
+              <EmptyState title="Рекомендаций пока нет" description="Добавьте больше операций и сгенерируйте AI-анализ" />
             )}
           </div>
         </div>

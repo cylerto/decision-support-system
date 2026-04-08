@@ -29,6 +29,8 @@ Database (PostgreSQL)
 Единая точка расчетов:
 - `get_summary`, `get_monthly`, `get_kpi`;
 - `get_categories_monthly`, `get_baseline_monthly`;
+- `get_profit_by_departments`, `get_profit_by_projects`;
+- `get_financial_stability` (классы: `стабильное`, `зона риска`, `критическое состояние`);
 - `run_scenario` (управленческий сценарий);
 - `data_quality`/`fix_uncategorized_operations`;
 - `ai_forecast` (прогнозные ряды на базе исторических данных).
@@ -91,3 +93,18 @@ Database (PostgreSQL)
 
 Итог: реализован сквозной цикл
 `Операции -> Аналитика -> KPI -> Прогноз -> Рекомендации`.
+
+## 8. Явные API для ключевых разрезов
+- `GET /api/analytics/profit/departments` — прибыль по подразделениям.
+- `GET /api/analytics/profit/projects` — прибыль по проектам.
+- `GET /api/analytics/budget-vs-actual` — бюджетный контроль (план/факт/отклонение).
+- `GET /api/analytics/stability` — финансовая устойчивость в формате
+  `стабильное | зона риска | критическое состояние`.
+
+## 9. Формат рекомендаций
+Для стабильного вывода в API используется структура:
+- `problem` — выявленная проблема;
+- `cause` — причина проблемы;
+- `action` — управленческое действие.
+
+Дополнительно возвращаются `type` и `priority` для приоритизации в интерфейсе.

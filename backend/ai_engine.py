@@ -19,6 +19,33 @@ AI_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
+def evaluate_financial_stability(metrics: dict) -> dict:
+    profit_margin = float(metrics.get("profit_margin_pct", 0) or 0)
+    expense_growth = float(metrics.get("expense_growth_pct", 0) or 0)
+    budget_deviation = float(metrics.get("budget_deviation_pct", 0) or 0)
+    profit_value = float(metrics.get("profit", 0) or 0)
+
+    if profit_value < 0 or profit_margin < 5 or expense_growth > 20 or budget_deviation > 20:
+        state = "критическое состояние"
+        score = 2
+    elif profit_margin < 15 or expense_growth > 10 or budget_deviation > 10:
+        state = "зона риска"
+        score = 1
+    else:
+        state = "стабильное"
+        score = 0
+
+    return {
+        "state": state,
+        "score": score,
+        "metrics": {
+            "profit_margin_pct": round(profit_margin, 2),
+            "expense_growth_pct": round(expense_growth, 2),
+            "budget_deviation_pct": round(budget_deviation, 2),
+        },
+    }
+
+
 def _prepare_monthly_data(model, user_id):
     data = (
         db.session.query(

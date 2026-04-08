@@ -1,0 +1,257 @@
+{
+  "passed": 50,
+  "failed": 0,
+  "status": "PASSED",
+  "checks": [
+    {
+      "name": "A.login_owner",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "A.login_manager",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "A.login_accountant",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "A.login_department_head",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "A.shared_company_scope",
+      "ok": true,
+      "details": "{'owner': 169, 'manager': 169, 'accountant': 169, 'department_head': 169}"
+    },
+    {
+      "name": "A.owner_login_for_flow",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "B.has_income_category",
+      "ok": true,
+      "details": "id=107"
+    },
+    {
+      "name": "B.has_expense_category",
+      "ok": true,
+      "details": "id=115"
+    },
+    {
+      "name": "B.has_department",
+      "ok": true,
+      "details": "id=37"
+    },
+    {
+      "name": "B.validation_income_required",
+      "ok": true,
+      "details": "status=400"
+    },
+    {
+      "name": "B.validation_expense_required",
+      "ok": true,
+      "details": "status=400"
+    },
+    {
+      "name": "D.summary_before_ok",
+      "ok": true,
+      "details": ""
+    },
+    {
+      "name": "D.forecast_before_ok",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.recommendations_before_ok",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "B.create_income",
+      "ok": true,
+      "details": "status=201, id=422"
+    },
+    {
+      "name": "B.create_expense",
+      "ok": true,
+      "details": "status=201, id=645"
+    },
+    {
+      "name": "B.update_income",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "B.update_expense",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "C.income_filter_sort_pagination",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "C.expense_filter_sort_pagination",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/summary",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/monthly",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/kpi",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/forecast?months=6",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/recommendations",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/profit/departments",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/profit/projects",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/stability",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/budget-vs-actual",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.endpoint_/api/analytics/baseline/monthly",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "D.summary_changed_after_crud",
+      "ok": true,
+      "details": "before=-1089738.0, after=-1087538.1100000003"
+    },
+    {
+      "name": "F.recommendations_problem_cause_action",
+      "ok": true,
+      "details": "keys=['action', 'cause', 'message', 'priority', 'problem', 'reason', 'type']"
+    },
+    {
+      "name": "F.ai_endpoint_non_empty_or_handled",
+      "ok": true,
+      "details": "status=200, text_len=477"
+    },
+    {
+      "name": "E.uncategorized_income_zero",
+      "ok": true,
+      "details": "{'empty_name_categories': 0, 'missing_expense_department': 0, 'missing_income_department': 0, 'uncategorized_expense': 0, 'uncategorized_income': 0}"
+    },
+    {
+      "name": "E.uncategorized_expense_zero",
+      "ok": true,
+      "details": "{'empty_name_categories': 0, 'missing_expense_department': 0, 'missing_income_department': 0, 'uncategorized_expense': 0, 'uncategorized_income': 0}"
+    },
+    {
+      "name": "E.missing_income_department_zero",
+      "ok": true,
+      "details": "{'empty_name_categories': 0, 'missing_expense_department': 0, 'missing_income_department': 0, 'uncategorized_expense': 0, 'uncategorized_income': 0}"
+    },
+    {
+      "name": "E.missing_expense_department_zero",
+      "ok": true,
+      "details": "{'empty_name_categories': 0, 'missing_expense_department': 0, 'missing_income_department': 0, 'uncategorized_expense': 0, 'uncategorized_income': 0}"
+    },
+    {
+      "name": "E.date_currency_format_api",
+      "ok": true,
+      "details": "date=YYYY-MM-DD, currency=RUB configured"
+    },
+    {
+      "name": "G.export_income_csv",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "G.export_expense_csv",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "G.import_income_csv",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "G.import_expense_csv",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "G.audit_available",
+      "ok": true,
+      "details": "before=200, after=200"
+    },
+    {
+      "name": "A.manager_relogin",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "A.manager_delete_forbidden",
+      "ok": true,
+      "details": "status=403"
+    },
+    {
+      "name": "B.delete_income_owner",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "B.delete_expense_owner",
+      "ok": true,
+      "details": "status=200"
+    },
+    {
+      "name": "H.light_theme_rules_present",
+      "ok": true,
+      "details": "App.css"
+    },
+    {
+      "name": "H.primary_secondary_danger_styles_present",
+      "ok": true,
+      "details": "App.css"
+    },
+    {
+      "name": "H.no_obvious_mojibake_in_core_ui",
+      "ok": true,
+      "details": "App.jsx + AnalyticsPage.jsx"
+    }
+  ]
+}

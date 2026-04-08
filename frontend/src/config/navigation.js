@@ -32,6 +32,7 @@ export const NAV_GROUPS = [
 export const ANALYTICS_TABS = [
   { key: 'summary', label: 'Сводка' },
   { key: 'monthly', label: 'Динамика по месяцам' },
+  { key: 'budget', label: 'Бюджет и контроль' },
   { key: 'insights', label: 'Рекомендации и анализ' }
 ]
 

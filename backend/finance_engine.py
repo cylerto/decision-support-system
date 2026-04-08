@@ -4,7 +4,16 @@ from datetime import datetime
 from sqlalchemy import extract, func
 
 from backend.extensions import db
-from backend.models import Category, Department, Expense, Income, MonthlyBudget, OperationDimension, UserSettings
+from backend.models import (
+    Category,
+    Department,
+    Expense,
+    Income,
+    MonthlyBudget,
+    OperationDimension,
+    Project,
+    UserSettings,
+)
 
 
 DEFAULT_INCOME_CATEGORY = "Прочие доходы"
@@ -121,6 +130,137 @@ def get_kpi(user_id):
         "savings_rate": round(savings_rate, 4),
         "burn_rate": round(burn_rate, 4),
     }
+
+
+def get_profit_by_departments(user_id):
+    departments = Department.query.filter_by(user_id=user_id).order_by(Department.name.asc()).all()
+    name_map = {row.id: row.name for row in departments}
+
+    income_rows = (
+        db.session.query(
+            OperationDimension.department_id,
+            func.coalesce(func.sum(Income.amount), 0).label("total_income"),
+        )
+        .join(
+            Income,
+            (Income.id == OperationDimension.transaction_id) & (Income.user_id == user_id),
+        )
+        .filter(
+            OperationDimension.user_id == user_id,
+            OperationDimension.transaction_type == "income",
+        )
+        .group_by(OperationDimension.department_id)
+        .all()
+    )
+    expense_rows = (
+        db.session.query(
+            OperationDimension.department_id,
+            func.coalesce(func.sum(Expense.amount), 0).label("total_expense"),
+        )
+        .join(
+            Expense,
+            (Expense.id == OperationDimension.transaction_id) & (Expense.user_id == user_id),
+        )
+        .filter(
+            OperationDimension.user_id == user_id,
+            OperationDimension.transaction_type == "expense",
+        )
+        .group_by(OperationDimension.department_id)
+        .all()
+    )
+
+    totals = {}
+    for department_id, total_income in income_rows:
+        key = int(department_id) if department_id is not None else 0
+        totals.setdefault(key, {"income": 0.0, "expense": 0.0})
+        totals[key]["income"] = float(total_income or 0)
+
+    for department_id, total_expense in expense_rows:
+        key = int(department_id) if department_id is not None else 0
+        totals.setdefault(key, {"income": 0.0, "expense": 0.0})
+        totals[key]["expense"] = float(total_expense or 0)
+
+    result = []
+    for department_id, values in totals.items():
+        income = values["income"]
+        expense = values["expense"]
+        result.append(
+            {
+                "department_id": None if department_id == 0 else department_id,
+                "department_name": name_map.get(department_id, "Не указано"),
+                "income": round(income, 2),
+                "expense": round(expense, 2),
+                "profit": round(income - expense, 2),
+            }
+        )
+
+    return sorted(result, key=lambda item: item["profit"], reverse=True)
+
+
+def get_profit_by_projects(user_id):
+    projects = Project.query.filter_by(user_id=user_id).order_by(Project.name.asc()).all()
+    name_map = {row.id: row.name for row in projects}
+    name_map[0] = "Без проекта"
+
+    income_rows = (
+        db.session.query(
+            OperationDimension.project_id,
+            func.coalesce(func.sum(Income.amount), 0).label("total_income"),
+        )
+        .join(
+            Income,
+            (Income.id == OperationDimension.transaction_id) & (Income.user_id == user_id),
+        )
+        .filter(
+            OperationDimension.user_id == user_id,
+            OperationDimension.transaction_type == "income",
+        )
+        .group_by(OperationDimension.project_id)
+        .all()
+    )
+    expense_rows = (
+        db.session.query(
+            OperationDimension.project_id,
+            func.coalesce(func.sum(Expense.amount), 0).label("total_expense"),
+        )
+        .join(
+            Expense,
+            (Expense.id == OperationDimension.transaction_id) & (Expense.user_id == user_id),
+        )
+        .filter(
+            OperationDimension.user_id == user_id,
+            OperationDimension.transaction_type == "expense",
+        )
+        .group_by(OperationDimension.project_id)
+        .all()
+    )
+
+    totals = {}
+    for project_id, total_income in income_rows:
+        key = int(project_id) if project_id is not None else 0
+        totals.setdefault(key, {"income": 0.0, "expense": 0.0})
+        totals[key]["income"] = float(total_income or 0)
+
+    for project_id, total_expense in expense_rows:
+        key = int(project_id) if project_id is not None else 0
+        totals.setdefault(key, {"income": 0.0, "expense": 0.0})
+        totals[key]["expense"] = float(total_expense or 0)
+
+    result = []
+    for project_id, values in totals.items():
+        income = values["income"]
+        expense = values["expense"]
+        result.append(
+            {
+                "project_id": None if project_id == 0 else project_id,
+                "project_name": name_map.get(project_id, "Без проекта"),
+                "income": round(income, 2),
+                "expense": round(expense, 2),
+                "profit": round(income - expense, 2),
+            }
+        )
+
+    return sorted(result, key=lambda item: item["profit"], reverse=True)
 
 
 def get_segments(user_id):
@@ -264,64 +404,106 @@ def get_recommendations(user_id):
     tips = []
     detailed = []
 
+    def push_item(problem, cause, action, priority="medium", item_type="tip"):
+        entry = {
+            "type": item_type,
+            "priority": priority,
+            "problem": problem,
+            "cause": cause,
+            "action": action,
+            "message": problem,
+            "reason": cause,
+        }
+        detailed.append(entry)
+        if item_type == "alert":
+            alerts.append(problem)
+        tips.append(action)
+
     if summary["profit"] < 0:
-        alerts.append("Отрицательный баланс")
-        detailed.append({
-            "type": "alert",
-            "priority": "high",
-            "message": "Отрицательный баланс",
-            "reason": f"Текущий финансовый результат: {round(summary['profit'], 2)}.",
-        })
+        push_item(
+            problem="Отрицательный баланс",
+            cause=f"Текущий финансовый результат: {round(summary['profit'], 2)}.",
+            action="Сократить переменные затраты и пересмотреть убыточные статьи.",
+            priority="high",
+            item_type="alert",
+        )
 
     if total_income == 0:
-        alerts.append("Нет доходов")
-        detailed.append({
-            "type": "alert",
-            "priority": "high",
-            "message": "Нет доходов",
-            "reason": "Невозможно оценить устойчивость и динамику без данных по выручке.",
-        })
+        push_item(
+            problem="Нет доходов",
+            cause="Отсутствуют операции выручки за анализируемый период.",
+            action="Добавить источники выручки в систему и проверить корректность импорта.",
+            priority="high",
+            item_type="alert",
+        )
     else:
         ratio = total_expense / total_income
         if ratio > 0.7:
-            alerts.append("Расходы превышают 70% доходов")
-            tips.append("Оптимизируйте постоянные затраты")
-            detailed.append({
-                "type": "alert",
-                "priority": "high",
-                "message": "Расходы превышают 70% доходов",
-                "reason": f"Текущая доля расходов: {round(ratio * 100, 1)}%.",
-            })
-            detailed.append({
-                "type": "tip",
-                "priority": "medium",
-                "message": "Оптимизируйте постоянные затраты",
-                "reason": "Снижение фиксированных расходов повышает запас устойчивости.",
-            })
+            push_item(
+                problem="Расходы превышают 70% доходов",
+                cause=f"Текущая доля расходов: {round(ratio * 100, 1)}%.",
+                action="Оптимизировать постоянные затраты и ввести лимиты по проблемным категориям.",
+                priority="high",
+                item_type="alert",
+            )
 
     if summary["profit"] > 0:
-        tips.append("Направьте часть прибыли в резерв")
-        detailed.append({
-            "type": "tip",
-            "priority": "low",
-            "message": "Направьте часть прибыли в резерв",
-            "reason": "Финансовая подушка снижает риски кассовых разрывов.",
-        })
+        push_item(
+            problem="Низкий резерв устойчивости",
+            cause="Прибыль не закреплена в резервном фонде.",
+            action="Направить часть прибыли в резерв на покрытие кассовых разрывов.",
+            priority="low",
+            item_type="tip",
+        )
 
     baseline = get_baseline_monthly(user_id)
     overspent_months = [row for row in baseline if row["planned_expense"] > 0 and row["budget_deviation"] > 0]
     if overspent_months:
-        alerts.append("Есть перерасход бюджета")
         latest = overspent_months[-1]
-        detailed.append({
-            "type": "alert",
-            "priority": "medium",
-            "message": "Есть перерасход бюджета",
-            "reason": f"{latest['month']}: отклонение {latest['budget_deviation']} ({latest['budget_deviation_pct']}%).",
-        })
-        tips.append("Пересмотрите лимиты и статьи перерасхода")
+        push_item(
+            problem="Есть перерасход бюджета",
+            cause=f"{latest['month']}: отклонение {latest['budget_deviation']} ({latest['budget_deviation_pct']}%).",
+            action="Пересмотреть бюджет и усилить контроль статей с перерасходом.",
+            priority="medium",
+            item_type="alert",
+        )
 
-    return {"alerts": alerts, "recommendations": tips, "detailed": detailed}
+    unique_tips = []
+    for tip in tips:
+        if tip not in unique_tips:
+            unique_tips.append(tip)
+
+    return {"alerts": alerts, "recommendations": unique_tips, "detailed": detailed}
+
+
+def get_financial_stability(user_id):
+    baseline = get_baseline_monthly(user_id)
+    summary = get_summary(user_id)
+
+    latest = baseline[-1] if baseline else None
+    previous = baseline[-2] if len(baseline) > 1 else None
+
+    profit_margin_pct = float(latest["profit_margin_pct"]) if latest else 0.0
+    budget_deviation_pct = float(latest["budget_deviation_pct"]) if latest else 0.0
+
+    if previous and float(previous.get("expense", 0)) > 0:
+        expense_growth_pct = (
+            (float(latest.get("expense", 0)) - float(previous.get("expense", 0)))
+            / float(previous.get("expense", 0))
+        ) * 100.0
+    else:
+        expense_growth_pct = 0.0
+
+    from backend.ai_engine import evaluate_financial_stability
+
+    return evaluate_financial_stability(
+        {
+            "profit_margin_pct": round(profit_margin_pct, 2),
+            "expense_growth_pct": round(expense_growth_pct, 2),
+            "budget_deviation_pct": round(budget_deviation_pct, 2),
+            "profit": round(float(summary.get("profit", 0)), 2),
+        }
+    )
 
 
 def get_dashboard(user_id):
@@ -502,8 +684,14 @@ def ai_forecast(income_model, expense_model, user_id, months=6):
     month_keys = sorted({
         _month_key(row["year"], row["month"]) for row in income_rows + expense_rows
     })
+    stability = get_financial_stability(user_id)
     if len(month_keys) < 2:
-        return {"message": "Недостаточно данных для прогноза", "series": None, "confidence": "низкая"}
+        return {
+            "message": "Недостаточно данных для прогноза",
+            "series": None,
+            "confidence": "низкая",
+            "stability": stability,
+        }
 
     income_by_month = {
         _month_key(row["year"], row["month"]): float(row["total"]) for row in income_rows
@@ -535,6 +723,7 @@ def ai_forecast(income_model, expense_model, user_id, months=6):
             "expense": [{"month": labels[i], "prediction": round(predicted_expense[i], 2)} for i in range(months)],
         },
         "confidence": confidence,
+        "stability": stability,
     }
 
 

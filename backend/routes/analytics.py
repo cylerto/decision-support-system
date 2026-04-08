@@ -8,8 +8,11 @@ from backend.finance_engine import (
     get_baseline_monthly,
     get_budget_vs_actual,
     get_categories_monthly,
+    get_financial_stability,
     get_kpi,
     get_monthly,
+    get_profit_by_departments,
+    get_profit_by_projects,
     get_segments,
     get_summary,
     get_user_format_settings,
@@ -66,6 +69,24 @@ def budget_vs_actual():
 @login_required
 def baseline_monthly():
     return jsonify(get_baseline_monthly(get_scope_user_id(current_user.id)))
+
+
+@analytics_bp.route("/profit/departments", methods=["GET"])
+@login_required
+def profit_departments():
+    return jsonify(get_profit_by_departments(get_scope_user_id(current_user.id)))
+
+
+@analytics_bp.route("/profit/projects", methods=["GET"])
+@login_required
+def profit_projects():
+    return jsonify(get_profit_by_projects(get_scope_user_id(current_user.id)))
+
+
+@analytics_bp.route("/stability", methods=["GET"])
+@login_required
+def stability():
+    return jsonify(get_financial_stability(get_scope_user_id(current_user.id)))
 
 
 @analytics_bp.route("/scenario", methods=["POST"])
