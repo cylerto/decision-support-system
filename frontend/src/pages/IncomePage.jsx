@@ -1,4 +1,4 @@
-import { formatDate, toMoney } from '../api.js'
+﻿import { formatDate, toMoney } from '../api.js'
 import SectionHeader from '../shared/ui/SectionHeader.jsx'
 import EmptyState from '../shared/ui/EmptyState.jsx'
 import SkeletonBlock from '../shared/ui/SkeletonBlock.jsx'
@@ -15,6 +15,9 @@ export default function IncomePage({
   onOpenCreate,
   onOpenEdit,
   onRemove,
+  onResetFilter,
+  canManage = true,
+  canDelete = true,
   embedded = false
 }) {
   const totalPages = Math.max(1, Math.ceil((meta?.total || 0) / (meta?.page_size || 10)))
@@ -25,7 +28,7 @@ export default function IncomePage({
         <SectionHeader
           title="Выручка"
           subtitle="Фильтрация, сортировка и пагинация операций"
-          actions={<button className="primary" onClick={onOpenCreate}>Добавить выручку</button>}
+          actions={canManage ? <button className="primary" onClick={onOpenCreate}>Добавить выручку</button> : null}
         />
       )}
 
@@ -69,6 +72,9 @@ export default function IncomePage({
             <option value="project:asc">Проект: A-Z</option>
           </select>
         </label>
+        <div className="field compact" style={{ alignSelf: 'end' }}>
+          <button type="button" className="ghost btn-secondary" onClick={onResetFilter}>Сбросить фильтры</button>
+        </div>
       </div>
 
       {loading ? (
@@ -86,7 +92,7 @@ export default function IncomePage({
                 <th>Проект</th>
                 <th>Сумма</th>
                 <th>Комментарий</th>
-                <th>Действия</th>
+                {(canManage || canDelete) && <th>Действия</th>}
               </tr>
             </thead>
             <tbody>
@@ -98,10 +104,12 @@ export default function IncomePage({
                   <td data-label="Проект">{directoriesMap.projects.get(item.project_id)?.name || '—'}</td>
                   <td data-label="Сумма" className="tone-income">{toMoney(item.amount)}</td>
                   <td data-label="Комментарий">{item.note || '—'}</td>
-                  <td data-label="Действия" className="table-actions">
-                    <button className="ghost btn-secondary action-edit" onClick={() => onOpenEdit(item)}>Редактировать</button>
-                    <button className="ghost danger btn-danger action-delete" onClick={() => onRemove(item.id)}>Удалить</button>
-                  </td>
+                  {(canManage || canDelete) && (
+                    <td data-label="Действия" className="table-actions">
+                      {canManage && <button className="ghost btn-secondary action-edit" onClick={() => onOpenEdit(item)}>Редактировать</button>}
+                      {canDelete && <button className="ghost danger btn-danger action-delete" onClick={() => onRemove(item.id)}>Удалить</button>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

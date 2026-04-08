@@ -66,6 +66,7 @@ export const api = {
   login: (data) => apiRequest("/api/auth/login", { method: "POST", body: data }),
   register: (data) => apiRequest("/api/auth/register", { method: "POST", body: data }),
   logout: () => apiRequest("/api/auth/logout", { method: "POST" }),
+  me: () => apiRequest("/api/auth/me"),
 
   getCategories: (params = {}) => {
     const query = buildQuery(params);

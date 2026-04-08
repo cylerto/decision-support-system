@@ -1,4 +1,7 @@
-﻿export const NAV_GROUPS = [
+﻿export const DEFENSE_MODE = true
+export const DEFENSE_VISIBLE_KEYS = ['dashboard', 'operations', 'analytics', 'system']
+
+export const NAV_GROUPS = [
   {
     title: 'Дашборд',
     icon: 'DB',

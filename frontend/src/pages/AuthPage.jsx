@@ -1,4 +1,4 @@
-import Logo from '../shared/brand/Logo.jsx'
+﻿import Logo from '../shared/brand/Logo.jsx'
 
 export default function AuthPage({ authMode, setAuthMode, profile, setProfile, onSubmit }) {
   return (

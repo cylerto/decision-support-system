@@ -1,4 +1,4 @@
-import Logo from '../brand/Logo.jsx'
+﻿import Logo from '../brand/Logo.jsx'
 
 const ICON = {
   dashboard: 'DB',
@@ -34,11 +34,7 @@ export default function Sidebar({ navGroups, active, onNavigate }) {
           </div>
           <nav>
             {group.items.map((item) => (
-              <button
-                key={item.key}
-                className={`nav-item ${active === item.key ? 'active' : ''}`}
-                onClick={() => onNavigate(item.key)}
-              >
+              <button key={item.key} className={`nav-item ${active === item.key ? 'active' : ''}`} onClick={() => onNavigate(item.key)}>
                 <span className="nav-item-icon">{ICON[item.icon] || '•'}</span>
                 {item.label}
               </button>

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 from ..models import AuditLog
+from ..scope import get_scope_user_id
 
 audit_bp = Blueprint("audit_bp", __name__, url_prefix="/api/audit")
 
@@ -9,9 +10,10 @@ audit_bp = Blueprint("audit_bp", __name__, url_prefix="/api/audit")
 @audit_bp.route("", methods=["GET"])
 @login_required
 def get_audit():
+    scope_user_id = get_scope_user_id(current_user.id)
     entity = request.args.get("entity")
     action = request.args.get("action")
-    query = AuditLog.query.filter_by(user_id=current_user.id)
+    query = AuditLog.query.filter_by(user_id=scope_user_id)
     if entity:
         query = query.filter_by(entity=entity)
     if action:

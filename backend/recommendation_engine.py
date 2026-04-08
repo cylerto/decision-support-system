@@ -42,7 +42,8 @@ def _call_openai(payload):
     system_prompt = (
         "Ты финансовый аналитик для малого бизнеса. "
         "Верни только JSON без markdown. "
-        "Формат: {\"alerts\": string[], \"recommendations\": string[], "
+        "Формат: "
+        "{\"alerts\": string[], \"recommendations\": string[], "
         "\"detailed\": [{\"type\":\"alert|tip\",\"priority\":\"high|medium|low\","
         "\"message\": string, \"reason\": string}]}. "
         "Рекомендации должны быть конкретными управленческими действиями."
@@ -103,7 +104,6 @@ def build_recommendations(user_id):
         return {
             **rule_based,
             "meta": {
-                "provider": "openai",
                 "provider": provider,
                 "model": model,
                 "ai_used": False,
@@ -120,7 +120,6 @@ def build_recommendations(user_id):
         return {
             **rule_based,
             "meta": {
-                "provider": "openai",
                 "provider": provider,
                 "model": model,
                 "ai_used": False,

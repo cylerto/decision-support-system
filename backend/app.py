@@ -12,9 +12,11 @@ except ImportError:
 
 from backend.extensions import db, login_manager
 from backend.ai_engine import generate_recommendations
+from backend.authz import get_user_role, has_access
 from backend.finance_engine import get_dashboard
 from backend.models import CategoryLimit
 from backend.recommendation_engine import build_recommendations
+from backend.scope import get_scope_user_id
 from backend.routes.auth import auth_bp
 from backend.routes.category import category_bp
 from backend.routes.expense import expense_bp
@@ -59,9 +61,20 @@ def create_app() -> Flask:
     app.register_blueprint(import_export_bp)
     app.register_blueprint(directories_bp)
 
-    if app.config.get("AUTO_CREATE_DB", False):
-        with app.app_context():
+    with app.app_context():
+        if app.config.get("AUTO_CREATE_DB", False):
             db.create_all()
+
+    @app.before_request
+    def enforce_rbac():
+        if not request.path.startswith("/api/"):
+            return None
+        if not current_user.is_authenticated:
+            return None
+        user_role = get_user_role(getattr(current_user, "id", None))
+        if has_access(request.path, request.method, user_role):
+            return None
+        return jsonify({"message": "Недостаточно прав", "code": "FORBIDDEN", "role": user_role}), 403
 
     register_legacy_routes(app)
     return app
@@ -98,6 +111,7 @@ def register_legacy_routes(app: Flask) -> None:
     @app.route("/api/category-limits", methods=["GET", "POST"])
     @login_required
     def legacy_category_limits():
+        scope_user_id = get_scope_user_id(current_user.id)
         if request.method == "POST":
             data = request.get_json() or {}
             category_id = data.get("category_id")
@@ -107,7 +121,7 @@ def register_legacy_routes(app: Flask) -> None:
                 return jsonify({"message": "category_id and limit required"}), 400
 
             limit = CategoryLimit.query.filter_by(
-                user_id=current_user.id,
+                user_id=scope_user_id,
                 category_id=category_id,
             ).first()
 
@@ -115,7 +129,7 @@ def register_legacy_routes(app: Flask) -> None:
                 limit.monthly_limit = limit_value
             else:
                 limit = CategoryLimit(
-                    user_id=current_user.id,
+                    user_id=scope_user_id,
                     category_id=category_id,
                     monthly_limit=limit_value,
                 )
@@ -124,7 +138,7 @@ def register_legacy_routes(app: Flask) -> None:
             db.session.commit()
             return jsonify({"message": "Limit saved"}), 200
 
-        limits = CategoryLimit.query.filter_by(user_id=current_user.id).all()
+        limits = CategoryLimit.query.filter_by(user_id=scope_user_id).all()
         return jsonify([
             {
                 "category_id": row.category_id,
@@ -136,12 +150,12 @@ def register_legacy_routes(app: Flask) -> None:
     @app.route("/api/analytics/dashboard")
     @login_required
     def dashboard():
-        return jsonify(get_dashboard(current_user.id))
+        return jsonify(get_dashboard(get_scope_user_id(current_user.id)))
 
     @app.route("/api/recommendations")
     @login_required
     def recommendations():
-        return jsonify(build_recommendations(current_user.id))
+        return jsonify(build_recommendations(get_scope_user_id(current_user.id)))
 
     @app.route("/api/ai/recommendations", methods=["POST"])
     @login_required

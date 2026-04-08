@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+﻿import { useMemo, useState } from 'react'
 import EmptyState from '../shared/ui/EmptyState.jsx'
 import SkeletonBlock from '../shared/ui/SkeletonBlock.jsx'
 
@@ -37,6 +37,7 @@ function compactDetails(data) {
 }
 
 export default function SystemHubPage({
+  canManage = true,
   onExportCsv,
   onImportCsv,
   rows,
@@ -46,6 +47,17 @@ export default function SystemHubPage({
   const [activeTab, setActiveTab] = useState('data')
   const actionCount = rows?.length || 0
   const historyRows = useMemo(() => rows || [], [rows])
+
+  if (!canManage) {
+    return (
+      <section>
+        <div className="card">
+          <h3>Система</h3>
+          <p className="hint">Доступ к импорту/экспорту и системному центру доступен только владельцу или бухгалтеру.</p>
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section>

@@ -1,7 +1,10 @@
-export default function Topbar({ title, quickActions, onQuickAction, theme, onToggleTheme, onLogout }) {
+﻿export default function Topbar({ title, quickActions, onQuickAction, theme, onToggleTheme, onLogout, userLabel }) {
   return (
     <header className="topbar">
-      <div><h1>{title}</h1></div>
+      <div>
+        <h1>{title}</h1>
+        {userLabel ? <p className="hint" style={{ marginTop: 6 }}>{userLabel}</p> : null}
+      </div>
       <div className="topbar-actions">
         {quickActions.slice(0, 2).map((item) => (
           <button key={item.key} className="ghost" onClick={() => onQuickAction(item.action)}>{item.label}</button>

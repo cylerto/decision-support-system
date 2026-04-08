@@ -6,6 +6,7 @@ from random import Random
 from werkzeug.security import generate_password_hash
 
 from backend.app import create_app
+from backend.authz import ROLE_OWNER, set_user_role
 from backend.extensions import db
 from backend.models import (
     AuditLog,
@@ -92,6 +93,7 @@ def upsert_user(username: str, password: str) -> User:
         db.session.flush()
     else:
         user.password_hash = generate_password_hash(password)
+    set_user_role(user.id, ROLE_OWNER)
     return user
 
 

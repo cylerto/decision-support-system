@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 
 from ..extensions import db
 from ..models import Category
+from ..scope import get_scope_user_id
 
 categories_bp = Blueprint("categories", __name__)
 
@@ -10,7 +11,7 @@ categories_bp = Blueprint("categories", __name__)
 @categories_bp.route("", methods=["GET"])
 @login_required
 def get_categories():
-    categories = Category.query.filter_by(user_id=current_user.id).all()
+    categories = Category.query.filter_by(user_id=get_scope_user_id(current_user.id)).all()
 
     return jsonify([
         {
@@ -25,6 +26,7 @@ def get_categories():
 @categories_bp.route("", methods=["POST"])
 @login_required
 def add_category():
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json()
 
     name = data.get("name")
@@ -36,7 +38,7 @@ def add_category():
     category = Category(
         name=name,
         type=category_type,
-        user_id=current_user.id
+        user_id=scope_user_id
     )
 
     db.session.add(category)

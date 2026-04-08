@@ -1,8 +1,9 @@
-from flask import Blueprint, request, jsonify
+﻿from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 
 from ..extensions import db
 from ..models import Category, CategoryMeta
+from ..scope import get_scope_user_id
 from ..utils import log_action
 
 category_bp = Blueprint("category_bp", __name__, url_prefix="/api/categories")
@@ -11,6 +12,7 @@ category_bp = Blueprint("category_bp", __name__, url_prefix="/api/categories")
 @category_bp.route("", methods=["POST"])
 @login_required
 def add_category():
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json()
 
     if not data or "name" not in data or "type" not in data:
@@ -19,11 +21,7 @@ def add_category():
     if data["type"] not in ["income", "expense"]:
         return jsonify({"message": "Type must be income or expense"}), 400
 
-    category = Category(
-        name=data["name"],
-        type=data["type"],
-        user_id=current_user.id
-    )
+    category = Category(name=data["name"], type=data["type"], user_id=scope_user_id)
 
     db.session.add(category)
     db.session.commit()
@@ -37,7 +35,8 @@ def add_category():
 @category_bp.route("", methods=["GET"])
 @login_required
 def get_categories():
-    query = Category.query.filter_by(user_id=current_user.id)
+    scope_user_id = get_scope_user_id(current_user.id)
+    query = Category.query.filter_by(user_id=scope_user_id)
     category_type = request.args.get("type")
     search = request.args.get("search")
     page = request.args.get("page", 1, type=int)
@@ -55,9 +54,7 @@ def get_categories():
     total = query.count()
     categories = query.order_by(Category.name.asc()).offset((page - 1) * page_size).limit(page_size).all()
     if categories:
-        meta_rows = CategoryMeta.query.filter(
-            CategoryMeta.category_id.in_([c.id for c in categories])
-        ).all()
+        meta_rows = CategoryMeta.query.filter(CategoryMeta.category_id.in_([c.id for c in categories])).all()
         meta_map = {m.category_id: m for m in meta_rows}
     else:
         meta_map = {}
@@ -75,15 +72,16 @@ def get_categories():
         ],
         "total": total,
         "page": page,
-        "page_size": page_size
+        "page_size": page_size,
     })
 
 
 @category_bp.route("/<int:category_id>", methods=["PUT"])
 @login_required
 def update_category(category_id):
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json() or {}
-    category = Category.query.filter_by(id=category_id, user_id=current_user.id).first()
+    category = Category.query.filter_by(id=category_id, user_id=scope_user_id).first()
     if not category:
         return jsonify({"message": "Category not found"}), 404
 
@@ -118,14 +116,16 @@ def update_category(category_id):
 @category_bp.route("/<int:category_id>", methods=["DELETE"])
 @login_required
 def delete_category(category_id):
-    category = Category.query.filter_by(id=category_id, user_id=current_user.id).first()
+    from ..models import Income, Expense
+
+    scope_user_id = get_scope_user_id(current_user.id)
+    category = Category.query.filter_by(id=category_id, user_id=scope_user_id).first()
     if not category:
         return jsonify({"message": "Category not found"}), 404
 
-    from ..models import Income, Expense
-    in_use = Income.query.filter_by(category_id=category.id, user_id=current_user.id).first()
+    in_use = Income.query.filter_by(category_id=category.id, user_id=scope_user_id).first()
     if not in_use:
-        in_use = Expense.query.filter_by(category_id=category.id, user_id=current_user.id).first()
+        in_use = Expense.query.filter_by(category_id=category.id, user_id=scope_user_id).first()
     if in_use:
         return jsonify({"message": "Category is in use"}), 400
 

@@ -1,4 +1,4 @@
-from collections import defaultdict
+﻿from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import extract, func
@@ -475,3 +475,66 @@ def fix_uncategorized_operations(user_id):
         "updated_expense": updated_expense,
         "default_department_id": default_department.id,
     }
+
+
+def _simple_linear_predict(values, steps):
+    n = len(values)
+    if n == 0:
+        return [0.0] * steps
+    if n == 1:
+        return [float(values[0])] * steps
+
+    x = list(range(n))
+    x_mean = sum(x) / n
+    y_mean = sum(values) / n
+    num = sum((x[i] - x_mean) * (values[i] - y_mean) for i in range(n))
+    den = sum((x[i] - x_mean) ** 2 for i in range(n)) or 1
+    slope = num / den
+    intercept = y_mean - slope * x_mean
+
+    return [max(0.0, intercept + slope * (n + i)) for i in range(steps)]
+
+
+def ai_forecast(income_model, expense_model, user_id, months=6):
+    income_rows = _monthly_totals(income_model, user_id)
+    expense_rows = _monthly_totals(expense_model, user_id)
+
+    month_keys = sorted({
+        _month_key(row["year"], row["month"]) for row in income_rows + expense_rows
+    })
+    if len(month_keys) < 2:
+        return {"message": "Недостаточно данных для прогноза", "series": None, "confidence": "низкая"}
+
+    income_by_month = {
+        _month_key(row["year"], row["month"]): float(row["total"]) for row in income_rows
+    }
+    expense_by_month = {
+        _month_key(row["year"], row["month"]): float(row["total"]) for row in expense_rows
+    }
+
+    income_series = [income_by_month.get(month, 0.0) for month in month_keys]
+    expense_series = [expense_by_month.get(month, 0.0) for month in month_keys]
+
+    predicted_income = _simple_linear_predict(income_series, months)
+    predicted_expense = _simple_linear_predict(expense_series, months)
+
+    last_year, last_month = map(int, month_keys[-1].split("-"))
+    labels = []
+    y, m = last_year, last_month
+    for _ in range(months):
+        m += 1
+        if m > 12:
+            y += 1
+            m = 1
+        labels.append(f"{y}-{m:02d}")
+
+    confidence = "высокая" if len(month_keys) >= 6 else ("средняя" if len(month_keys) >= 4 else "низкая")
+    return {
+        "series": {
+            "income": [{"month": labels[i], "prediction": round(predicted_income[i], 2)} for i in range(months)],
+            "expense": [{"month": labels[i], "prediction": round(predicted_expense[i], 2)} for i in range(months)],
+        },
+        "confidence": confidence,
+    }
+
+

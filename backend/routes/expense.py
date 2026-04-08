@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+﻿from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 from sqlalchemy import and_, extract, func
 from sqlalchemy.orm import aliased
@@ -14,6 +14,7 @@ from ..operation_rules import (
     validate_pagination,
     validate_sorting,
 )
+from ..scope import get_scope_user_id
 from ..utils import create_notification, ensure_user_settings, log_action
 
 expense_bp = Blueprint("expense_bp", __name__, url_prefix="/api/expense")
@@ -22,21 +23,22 @@ expense_bp = Blueprint("expense_bp", __name__, url_prefix="/api/expense")
 @expense_bp.route("", methods=["POST"])
 @login_required
 def add_expense():
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json() or {}
 
     try:
         amount = parse_amount(data.get("amount"), required=True)
         date_value = parse_date(data.get("date"), required=True)
-        category = require_category(data.get("category_id"), current_user.id, "expense")
-        department = require_department(data.get("department_id"), current_user.id)
-        project = optional_project(data.get("project_id"), current_user.id)
+        category = require_category(data.get("category_id"), scope_user_id, "expense")
+        department = require_department(data.get("department_id"), scope_user_id)
+        project = optional_project(data.get("project_id"), scope_user_id)
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
 
     expense = Expense(
         amount=amount,
         date=date_value,
-        user_id=current_user.id,
+        user_id=scope_user_id,
         category_id=category.id,
     )
     db.session.add(expense)
@@ -48,7 +50,7 @@ def add_expense():
 
     db.session.add(
         OperationDimension(
-            user_id=current_user.id,
+            user_id=scope_user_id,
             transaction_type="expense",
             transaction_id=expense.id,
             department_id=department.id,
@@ -57,12 +59,12 @@ def add_expense():
     )
 
     settings = ensure_user_settings()
-    limit = CategoryLimit.query.filter_by(user_id=current_user.id, category_id=category.id).first()
+    limit = CategoryLimit.query.filter_by(user_id=scope_user_id, category_id=category.id).first()
     if limit:
         month_total = (
             db.session.query(func.coalesce(func.sum(Expense.amount), 0))
             .filter(
-                Expense.user_id == current_user.id,
+                Expense.user_id == scope_user_id,
                 Expense.category_id == category.id,
                 extract("year", Expense.date) == date_value.year,
                 extract("month", Expense.date) == date_value.month,
@@ -82,11 +84,12 @@ def add_expense():
 @expense_bp.route("", methods=["GET"])
 @login_required
 def get_expenses():
+    scope_user_id = get_scope_user_id(current_user.id)
     dim = aliased(OperationDimension)
-    query = Expense.query.filter_by(user_id=current_user.id).outerjoin(
+    query = Expense.query.filter_by(user_id=scope_user_id).outerjoin(
         dim,
         and_(
-            dim.user_id == current_user.id,
+            dim.user_id == scope_user_id,
             dim.transaction_type == "expense",
             dim.transaction_id == Expense.id,
         ),
@@ -140,7 +143,7 @@ def get_expenses():
         metas = {row.transaction_id: row for row in meta_rows}
 
         dim_rows = (
-            OperationDimension.query.filter_by(user_id=current_user.id, transaction_type="expense")
+            OperationDimension.query.filter_by(user_id=scope_user_id, transaction_type="expense")
             .filter(OperationDimension.transaction_id.in_(ids))
             .all()
         )
@@ -173,8 +176,9 @@ def get_expenses():
 @expense_bp.route("/<int:expense_id>", methods=["PUT"])
 @login_required
 def update_expense(expense_id):
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json() or {}
-    expense = Expense.query.filter_by(id=expense_id, user_id=current_user.id).first()
+    expense = Expense.query.filter_by(id=expense_id, user_id=scope_user_id).first()
     if not expense:
         return jsonify({"message": "Expense not found"}), 404
 
@@ -182,7 +186,7 @@ def update_expense(expense_id):
         if "amount" in data:
             expense.amount = parse_amount(data.get("amount"), required=True)
         if "category_id" in data:
-            category = require_category(data.get("category_id"), current_user.id, "expense")
+            category = require_category(data.get("category_id"), scope_user_id, "expense")
             expense.category_id = category.id
         if "date" in data:
             expense.date = parse_date(data.get("date"), required=True)
@@ -199,18 +203,18 @@ def update_expense(expense_id):
             meta.note = note
 
     dim = OperationDimension.query.filter_by(
-        user_id=current_user.id, transaction_type="expense", transaction_id=expense.id
+        user_id=scope_user_id, transaction_type="expense", transaction_id=expense.id
     ).first()
     if dim is None:
-        dim = OperationDimension(user_id=current_user.id, transaction_type="expense", transaction_id=expense.id)
+        dim = OperationDimension(user_id=scope_user_id, transaction_type="expense", transaction_id=expense.id)
         db.session.add(dim)
 
     try:
         if "department_id" in data:
-            department = require_department(data.get("department_id"), current_user.id)
+            department = require_department(data.get("department_id"), scope_user_id)
             dim.department_id = department.id
         if "project_id" in data:
-            project = optional_project(data.get("project_id"), current_user.id)
+            project = optional_project(data.get("project_id"), scope_user_id)
             dim.project_id = project.id if project else None
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
@@ -226,13 +230,14 @@ def update_expense(expense_id):
 @expense_bp.route("/<int:expense_id>", methods=["DELETE"])
 @login_required
 def delete_expense(expense_id):
-    expense = Expense.query.filter_by(id=expense_id, user_id=current_user.id).first()
+    scope_user_id = get_scope_user_id(current_user.id)
+    expense = Expense.query.filter_by(id=expense_id, user_id=scope_user_id).first()
     if not expense:
         return jsonify({"message": "Expense not found"}), 404
 
     TransactionMeta.query.filter_by(transaction_type="expense", transaction_id=expense.id).delete()
     OperationDimension.query.filter_by(
-        user_id=current_user.id, transaction_type="expense", transaction_id=expense.id
+        user_id=scope_user_id, transaction_type="expense", transaction_id=expense.id
     ).delete()
     db.session.delete(expense)
     log_action("delete", "expense", expense.id)

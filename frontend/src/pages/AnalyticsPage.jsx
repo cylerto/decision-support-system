@@ -155,7 +155,7 @@ export default function AnalyticsPage({
       <SectionHeader
         title="Аналитика и решения"
         subtitle="Финансовая динамика, прогноз, AI-рекомендации и сценарный анализ"
-        actions={
+        actions={(
           <div className="section-actions">
             <select value={analyticsWindow} onChange={(event) => setAnalyticsWindow(event.target.value)}>
               <option value="3">3 месяца</option>
@@ -165,7 +165,7 @@ export default function AnalyticsPage({
             </select>
             <button className="ghost" onClick={onRefresh}>Обновить</button>
           </div>
-        }
+        )}
       />
 
       <div className="insights-hero">

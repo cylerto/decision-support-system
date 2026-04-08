@@ -1,9 +1,10 @@
-from flask import Blueprint, jsonify, request
+﻿from flask import Blueprint, jsonify, request
 from flask_login import current_user, login_required
 from sqlalchemy import func
 
 from ..extensions import db
 from ..models import Department, OperationDimension, Project
+from ..scope import get_scope_user_id
 from ..utils import log_action
 
 
@@ -19,17 +20,19 @@ MODEL_BY_KIND = {
 @directories_bp.route("/<string:kind>", methods=["GET"])
 @login_required
 def list_directory(kind):
+    scope_user_id = get_scope_user_id(current_user.id)
     model = MODEL_BY_KIND.get(kind)
     if not model:
         return jsonify({"message": "Unknown directory type"}), 404
 
-    rows = model.query.filter_by(user_id=current_user.id).order_by(model.name.asc()).all()
+    rows = model.query.filter_by(user_id=scope_user_id).order_by(model.name.asc()).all()
     return jsonify([{"id": row.id, "name": row.name} for row in rows])
 
 
 @directories_bp.route("/<string:kind>", methods=["POST"])
 @login_required
 def create_directory(kind):
+    scope_user_id = get_scope_user_id(current_user.id)
     model = MODEL_BY_KIND.get(kind)
     if not model:
         return jsonify({"message": "Unknown directory type"}), 404
@@ -39,7 +42,7 @@ def create_directory(kind):
     if not name:
         return jsonify({"message": "name is required"}), 400
 
-    row = model(user_id=current_user.id, name=name)
+    row = model(user_id=scope_user_id, name=name)
     db.session.add(row)
     db.session.commit()
     log_action("create", kind[:-1], row.id, {"name": row.name})
@@ -50,11 +53,12 @@ def create_directory(kind):
 @directories_bp.route("/<string:kind>/<int:row_id>", methods=["PUT"])
 @login_required
 def update_directory(kind, row_id):
+    scope_user_id = get_scope_user_id(current_user.id)
     model = MODEL_BY_KIND.get(kind)
     if not model:
         return jsonify({"message": "Unknown directory type"}), 404
 
-    row = model.query.filter_by(id=row_id, user_id=current_user.id).first()
+    row = model.query.filter_by(id=row_id, user_id=scope_user_id).first()
     if not row:
         return jsonify({"message": "Not found"}), 404
 
@@ -72,11 +76,12 @@ def update_directory(kind, row_id):
 @directories_bp.route("/<string:kind>/<int:row_id>", methods=["DELETE"])
 @login_required
 def delete_directory(kind, row_id):
+    scope_user_id = get_scope_user_id(current_user.id)
     model = MODEL_BY_KIND.get(kind)
     if not model:
         return jsonify({"message": "Unknown directory type"}), 404
 
-    row = model.query.filter_by(id=row_id, user_id=current_user.id).first()
+    row = model.query.filter_by(id=row_id, user_id=scope_user_id).first()
     if not row:
         return jsonify({"message": "Not found"}), 404
 
@@ -85,7 +90,7 @@ def delete_directory(kind, row_id):
             OperationDimension.transaction_type.label("transaction_type"),
             func.count(OperationDimension.id).label("cnt"),
         )
-        .filter(OperationDimension.user_id == current_user.id)
+        .filter(OperationDimension.user_id == scope_user_id)
     )
     if kind == "departments":
         usage_query = usage_query.filter(OperationDimension.department_id == row_id)

@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import io
 from datetime import datetime
 
@@ -6,15 +6,8 @@ from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user, login_required
 
 from ..extensions import db
-from ..models import (
-    Category,
-    Department,
-    Expense,
-    Income,
-    OperationDimension,
-    Project,
-    TransactionMeta,
-)
+from ..models import Category, Department, Expense, Income, OperationDimension, Project, TransactionMeta
+from ..scope import get_scope_user_id
 from ..utils import log_action
 
 try:
@@ -26,24 +19,24 @@ except Exception:
 import_export_bp = Blueprint("import_export_bp", __name__, url_prefix="/api")
 
 
-def _ensure_default_category(kind):
+def _ensure_default_category(kind, scope_user_id):
     category_type = "income" if kind == "income" else "expense"
     default_name = "Прочие доходы" if kind == "income" else "Прочие затраты"
-    category = Category.query.filter_by(user_id=current_user.id, type=category_type, name=default_name).first()
+    category = Category.query.filter_by(user_id=scope_user_id, type=category_type, name=default_name).first()
     if category:
         return category
-    category = Category(user_id=current_user.id, type=category_type, name=default_name)
+    category = Category(user_id=scope_user_id, type=category_type, name=default_name)
     db.session.add(category)
     db.session.flush()
     return category
 
 
-def _ensure_default_department():
+def _ensure_default_department(scope_user_id):
     default_name = "Не указано"
-    department = Department.query.filter_by(user_id=current_user.id, name=default_name).first()
+    department = Department.query.filter_by(user_id=scope_user_id, name=default_name).first()
     if department:
         return department
-    department = Department(user_id=current_user.id, name=default_name)
+    department = Department(user_id=scope_user_id, name=default_name)
     db.session.add(department)
     db.session.flush()
     return department
@@ -76,12 +69,13 @@ def _serialize_xlsx(rows):
 @import_export_bp.route("/export/<string:kind>", methods=["GET"])
 @login_required
 def export_data(kind):
+    scope_user_id = get_scope_user_id(current_user.id)
     if kind not in ("income", "expense"):
         return jsonify({"message": "Invalid export type"}), 400
 
     fmt = request.args.get("format", "csv")
     model = Income if kind == "income" else Expense
-    rows = model.query.filter_by(user_id=current_user.id).order_by(model.date.desc()).all()
+    rows = model.query.filter_by(user_id=scope_user_id).order_by(model.date.desc()).all()
 
     if fmt == "xlsx":
         xlsx = _serialize_xlsx(rows)
@@ -125,34 +119,34 @@ def _parse_xlsx(file_storage):
     return rows
 
 
-def _resolve_department(row, default_department):
+def _resolve_department(row, default_department, scope_user_id):
     department_id = row.get("department_id")
     department_name = (row.get("department_name") or "").strip()
     department = None
 
     if department_id:
-        department = Department.query.filter_by(id=int(department_id), user_id=current_user.id).first()
+        department = Department.query.filter_by(id=int(department_id), user_id=scope_user_id).first()
     elif department_name:
-        department = Department.query.filter_by(user_id=current_user.id, name=department_name).first()
+        department = Department.query.filter_by(user_id=scope_user_id, name=department_name).first()
         if not department:
-            department = Department(user_id=current_user.id, name=department_name)
+            department = Department(user_id=scope_user_id, name=department_name)
             db.session.add(department)
             db.session.flush()
 
     return department or default_department
 
 
-def _resolve_project(row):
+def _resolve_project(row, scope_user_id):
     project_id = row.get("project_id")
     project_name = (row.get("project_name") or "").strip()
     project = None
 
     if project_id:
-        project = Project.query.filter_by(id=int(project_id), user_id=current_user.id).first()
+        project = Project.query.filter_by(id=int(project_id), user_id=scope_user_id).first()
     elif project_name:
-        project = Project.query.filter_by(user_id=current_user.id, name=project_name).first()
+        project = Project.query.filter_by(user_id=scope_user_id, name=project_name).first()
         if not project:
-            project = Project(user_id=current_user.id, name=project_name)
+            project = Project(user_id=scope_user_id, name=project_name)
             db.session.add(project)
             db.session.flush()
 
@@ -162,6 +156,7 @@ def _resolve_project(row):
 @import_export_bp.route("/import/<string:kind>", methods=["POST"])
 @login_required
 def import_data(kind):
+    scope_user_id = get_scope_user_id(current_user.id)
     if kind not in ("income", "expense"):
         return jsonify({"message": "Invalid import type"}), 400
     if "file" not in request.files:
@@ -181,7 +176,7 @@ def import_data(kind):
     model = Income if kind == "income" else Expense
     expected_type = "income" if kind == "income" else "expense"
     created = 0
-    default_department = _ensure_default_department()
+    default_department = _ensure_default_department(scope_user_id)
 
     for row in rows:
         try:
@@ -200,22 +195,22 @@ def import_data(kind):
 
             category_id = int(category_id) if category_id else None
             if category_id:
-                exists = Category.query.filter_by(id=category_id, user_id=current_user.id, type=expected_type).first()
+                exists = Category.query.filter_by(id=category_id, user_id=scope_user_id, type=expected_type).first()
                 if not exists:
                     category_id = None
             if not category_id:
-                category_id = _ensure_default_category(kind).id
+                category_id = _ensure_default_category(kind, scope_user_id).id
 
-            department = _resolve_department(row, default_department)
-            project = _resolve_project(row)
+            department = _resolve_department(row, default_department, scope_user_id)
+            project = _resolve_project(row, scope_user_id)
 
-            record = model(amount=amount, date=date_obj, user_id=current_user.id, category_id=category_id)
+            record = model(amount=amount, date=date_obj, user_id=scope_user_id, category_id=category_id)
             db.session.add(record)
             db.session.flush()
 
             db.session.add(
                 OperationDimension(
-                    user_id=current_user.id,
+                    user_id=scope_user_id,
                     transaction_type=expected_type,
                     transaction_id=record.id,
                     department_id=department.id,

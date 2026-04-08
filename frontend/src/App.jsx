@@ -13,7 +13,7 @@ import {
   Legend
 } from 'chart.js'
 import { api, configureFormatting } from './api.js'
-import { ANALYTICS_TABS, KEY_BY_ROUTE, NAV_GROUPS, QUICK_ACTIONS, ROUTE_BY_KEY } from './config/navigation.js'
+import { ANALYTICS_TABS, DEFENSE_MODE, DEFENSE_VISIBLE_KEYS, KEY_BY_ROUTE, NAV_GROUPS, QUICK_ACTIONS, ROUTE_BY_KEY } from './config/navigation.js'
 import Modal from './shared/ui/Modal.jsx'
 import Sidebar from './shared/layout/Sidebar.jsx'
 import Topbar from './shared/layout/Topbar.jsx'
@@ -89,6 +89,58 @@ const defaultOperationFilter = {
   pageSize: 10
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const SORT_FIELDS = new Set(['date', 'amount', 'category', 'department', 'project'])
+const SORT_DIRS = new Set(['asc', 'desc'])
+
+function sanitizeOperationFilter(raw = {}) {
+  const next = { ...defaultOperationFilter, ...(raw || {}) }
+  next.dateFrom = DATE_RE.test(String(next.dateFrom || '')) ? String(next.dateFrom) : ''
+  next.dateTo = DATE_RE.test(String(next.dateTo || '')) ? String(next.dateTo) : ''
+  next.departmentId = next.departmentId ? String(next.departmentId) : ''
+  next.projectId = next.projectId ? String(next.projectId) : ''
+  next.sortBy = SORT_FIELDS.has(next.sortBy) ? next.sortBy : 'date'
+  next.sortDir = SORT_DIRS.has(next.sortDir) ? next.sortDir : 'desc'
+  next.page = Number.isFinite(Number(next.page)) && Number(next.page) > 0 ? Number(next.page) : 1
+  next.pageSize = Number.isFinite(Number(next.pageSize)) && Number(next.pageSize) > 0 ? Number(next.pageSize) : 10
+  return next
+}
+
+function hasActiveOperationFilters(filter) {
+  return Boolean(filter.dateFrom || filter.dateTo || filter.departmentId || filter.projectId || filter.sortBy !== 'date' || filter.sortDir !== 'desc')
+}
+
+const ROLE_PERMISSIONS = {
+  owner: {
+    viewSystem: true,
+    manageOperations: true,
+    deleteOperations: true,
+    manageStructure: true,
+    deleteStructure: true
+  },
+  manager: {
+    viewSystem: false,
+    manageOperations: true,
+    deleteOperations: false,
+    manageStructure: true,
+    deleteStructure: false
+  },
+  accountant: {
+    viewSystem: true,
+    manageOperations: true,
+    deleteOperations: true,
+    manageStructure: true,
+    deleteStructure: true
+  },
+  department_head: {
+    viewSystem: false,
+    manageOperations: false,
+    deleteOperations: false,
+    manageStructure: false,
+    deleteStructure: false
+  }
+}
+
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -98,6 +150,7 @@ export default function App() {
   const [analyticsTab, setAnalyticsTab] = useState('summary')
   const [analyticsWindow, setAnalyticsWindow] = useState('6')
   const [authed, setAuthed] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
   const [authMode, setAuthMode] = useState('login')
   const [profile, setProfile] = useState({ username: '', password: '' })
   const [modal, setModal] = useState(null)
@@ -129,8 +182,8 @@ export default function App() {
   const [lastAiSignature, setLastAiSignature] = useState('')
 
   const [categoryFilter, setCategoryFilter] = useState(() => readStoredJson('dss.categoryFilter', { search: '', type: '', page: 1, pageSize: 10 }))
-  const [incomeFilter, setIncomeFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.incomeFilter', {}) }))
-  const [expenseFilter, setExpenseFilter] = useState(() => ({ ...defaultOperationFilter, ...readStoredJson('dss.expenseFilter', {}) }))
+  const [incomeFilter, setIncomeFilter] = useState(() => sanitizeOperationFilter(readStoredJson('dss.incomeFilter', {})))
+  const [expenseFilter, setExpenseFilter] = useState(() => sanitizeOperationFilter(readStoredJson('dss.expenseFilter', {})))
 
   const categoryMap = useMemo(() => new Map(allCategories.map((item) => [item.id, item])), [allCategories])
   const directoriesMap = useMemo(() => ({
@@ -139,6 +192,9 @@ export default function App() {
   }), [directories])
   const incomeCategories = allCategories.filter((item) => item.type === 'income')
   const expenseCategories = allCategories.filter((item) => item.type === 'expense')
+  const userRole = currentUser?.role || 'owner'
+  const permissions = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS.owner
+  const defenseAllowedKeys = useMemo(() => new Set(DEFENSE_VISIBLE_KEYS), [])
 
   const refreshCategoryCatalog = () => guard('categoryCatalog', async () => {
     const data = await api.getCategories({ page: 1, page_size: 500 })
@@ -151,6 +207,11 @@ export default function App() {
       api.getDirectories('projects')
     ])
     setDirectories({ departments, projects })
+  })
+
+  const refreshSession = () => guard('session', async () => {
+    const me = await api.me()
+    setCurrentUser(me || null)
   })
 
   const setBusy = useCallback((key, value) => {
@@ -199,52 +260,92 @@ export default function App() {
   })
 
   const refreshIncome = () => guard('income', async () => {
+    const filter = sanitizeOperationFilter(incomeFilter)
+    if (JSON.stringify(filter) !== JSON.stringify(incomeFilter)) {
+      setIncomeFilter(filter)
+    }
     const data = await api.getIncome({
-      date_from: incomeFilter.dateFrom || undefined,
-      date_to: incomeFilter.dateTo || undefined,
-      department_id: incomeFilter.departmentId || undefined,
-      project_id: incomeFilter.projectId || undefined,
-      sort_by: incomeFilter.sortBy || 'date',
-      sort_dir: incomeFilter.sortDir || 'desc',
-      page: incomeFilter.page,
-      page_size: incomeFilter.pageSize
+      date_from: filter.dateFrom || undefined,
+      date_to: filter.dateTo || undefined,
+      department_id: filter.departmentId || undefined,
+      project_id: filter.projectId || undefined,
+      sort_by: filter.sortBy || 'date',
+      sort_dir: filter.sortDir || 'desc',
+      page: filter.page,
+      page_size: filter.pageSize
     })
     const items = data.items ?? data
     const total = data.total ?? (data.items?.length ?? data.length ?? 0)
-    if ((items?.length ?? 0) === 0 && total > 0 && incomeFilter.page > 1) {
+    if ((items?.length ?? 0) === 0 && total > 0 && filter.page > 1) {
       setIncomeFilter((prev) => ({ ...prev, page: 1 }))
       return
+    }
+    if ((items?.length ?? 0) === 0 && total === 0 && hasActiveOperationFilters(filter)) {
+      const fallback = await api.getIncome({ page: 1, page_size: filter.pageSize, sort_by: 'date', sort_dir: 'desc' })
+      const fallbackItems = fallback.items ?? fallback
+      const fallbackTotal = fallback.total ?? (fallback.items?.length ?? fallback.length ?? 0)
+      if (fallbackTotal > 0) {
+        setIncomeFilter({ ...defaultOperationFilter, pageSize: filter.pageSize })
+        setIncome(fallbackItems)
+        setIncomeMeta({
+          total: fallbackTotal,
+          page: fallback.page ?? 1,
+          page_size: fallback.page_size ?? filter.pageSize
+        })
+        addAlert('Фильтры выручки были сброшены: скрывали все записи.', 'warning')
+        return
+      }
     }
     setIncome(items)
     setIncomeMeta({
       total,
-      page: data.page ?? incomeFilter.page,
-      page_size: data.page_size ?? incomeFilter.pageSize
+      page: data.page ?? filter.page,
+      page_size: data.page_size ?? filter.pageSize
     })
   })
 
   const refreshExpense = () => guard('expense', async () => {
+    const filter = sanitizeOperationFilter(expenseFilter)
+    if (JSON.stringify(filter) !== JSON.stringify(expenseFilter)) {
+      setExpenseFilter(filter)
+    }
     const data = await api.getExpense({
-      date_from: expenseFilter.dateFrom || undefined,
-      date_to: expenseFilter.dateTo || undefined,
-      department_id: expenseFilter.departmentId || undefined,
-      project_id: expenseFilter.projectId || undefined,
-      sort_by: expenseFilter.sortBy || 'date',
-      sort_dir: expenseFilter.sortDir || 'desc',
-      page: expenseFilter.page,
-      page_size: expenseFilter.pageSize
+      date_from: filter.dateFrom || undefined,
+      date_to: filter.dateTo || undefined,
+      department_id: filter.departmentId || undefined,
+      project_id: filter.projectId || undefined,
+      sort_by: filter.sortBy || 'date',
+      sort_dir: filter.sortDir || 'desc',
+      page: filter.page,
+      page_size: filter.pageSize
     })
     const items = data.items ?? data
     const total = data.total ?? (data.items?.length ?? data.length ?? 0)
-    if ((items?.length ?? 0) === 0 && total > 0 && expenseFilter.page > 1) {
+    if ((items?.length ?? 0) === 0 && total > 0 && filter.page > 1) {
       setExpenseFilter((prev) => ({ ...prev, page: 1 }))
       return
+    }
+    if ((items?.length ?? 0) === 0 && total === 0 && hasActiveOperationFilters(filter)) {
+      const fallback = await api.getExpense({ page: 1, page_size: filter.pageSize, sort_by: 'date', sort_dir: 'desc' })
+      const fallbackItems = fallback.items ?? fallback
+      const fallbackTotal = fallback.total ?? (fallback.items?.length ?? fallback.length ?? 0)
+      if (fallbackTotal > 0) {
+        setExpenseFilter({ ...defaultOperationFilter, pageSize: filter.pageSize })
+        setExpense(fallbackItems)
+        setExpenseMeta({
+          total: fallbackTotal,
+          page: fallback.page ?? 1,
+          page_size: fallback.page_size ?? filter.pageSize
+        })
+        addAlert('Фильтры затрат были сброшены: скрывали все записи.', 'warning')
+        return
+      }
     }
     setExpense(items)
     setExpenseMeta({
       total,
-      page: data.page ?? expenseFilter.page,
-      page_size: data.page_size ?? expenseFilter.pageSize
+      page: data.page ?? filter.page,
+      page_size: data.page_size ?? filter.pageSize
     })
   })
 
@@ -277,6 +378,7 @@ export default function App() {
   })
 
   const refreshAll = async () => {
+    await refreshSession()
     await Promise.all([
       refreshCategories(),
       refreshCategoryCatalog(),
@@ -299,20 +401,40 @@ export default function App() {
     const key = KEY_BY_ROUTE[location.pathname]
     if (key) {
       if (key === 'income' || key === 'expense') {
+        if (DEFENSE_MODE && !defenseAllowedKeys.has('operations')) {
+          navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+          return
+        }
         setOperationsTab(key)
         setActive('operations')
         return
       }
       if (key === 'categories' || key === 'departments' || key === 'projects') {
+        if (DEFENSE_MODE && !defenseAllowedKeys.has('structure')) {
+          navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+          return
+        }
         setActive('structure')
         return
       }
       if (key === 'system' || key === 'data' || key === 'history' || key === 'settings') {
+        if (DEFENSE_MODE && !defenseAllowedKeys.has('system')) {
+          navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+          return
+        }
         setActive('system')
         return
       }
       if (key === 'analytics_monthly' || key === 'analytics_structure' || key === 'forecast' || key === 'recommendations') {
+        if (DEFENSE_MODE && !defenseAllowedKeys.has('analytics')) {
+          navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+          return
+        }
         setActive('analytics')
+        return
+      }
+      if (DEFENSE_MODE && !defenseAllowedKeys.has(key)) {
+        navigate(ROUTE_BY_KEY.dashboard, { replace: true })
         return
       }
       setActive(key)
@@ -323,7 +445,7 @@ export default function App() {
       return
     }
     if (authed) navigate(ROUTE_BY_KEY.dashboard, { replace: true })
-  }, [location.pathname, authed, navigate])
+  }, [location.pathname, authed, navigate, defenseAllowedKeys])
 
   useEffect(() => {
     const tabBySection = {
@@ -337,13 +459,26 @@ export default function App() {
     if (nextTab) setAnalyticsTab(nextTab)
   }, [active])
 
+  useEffect(() => {
+    if (!permissions.viewSystem && active === 'system') {
+      navigate(ROUTE_BY_KEY.dashboard, { replace: true })
+    }
+  }, [permissions.viewSystem, active, navigate])
+
   useEffect(() => localStorage.setItem('dss.categoryFilter', JSON.stringify(categoryFilter)), [categoryFilter])
   useEffect(() => localStorage.setItem('dss.incomeFilter', JSON.stringify(incomeFilter)), [incomeFilter])
   useEffect(() => localStorage.setItem('dss.expenseFilter', JSON.stringify(expenseFilter)), [expenseFilter])
   useEffect(() => localStorage.setItem('dss.operationsTab', operationsTab), [operationsTab])
 
   useEffect(() => {
-    api.health().then((h) => setAuthed(Boolean(h?.authenticated))).catch(() => setAuthed(false))
+    api.health().then((h) => {
+      const isAuthed = Boolean(h?.authenticated)
+      setAuthed(isAuthed)
+      if (!isAuthed) setCurrentUser(null)
+    }).catch(() => {
+      setAuthed(false)
+      setCurrentUser(null)
+    })
   }, [])
 
   useEffect(() => {
@@ -363,13 +498,13 @@ export default function App() {
     const handler = (event) => {
       if (!authed) return
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA' || event.target.tagName === 'SELECT') return
-      if (event.key.toLowerCase() === 'i') setModal({ type: 'create', entity: 'income' })
-      if (event.key.toLowerCase() === 'e') setModal({ type: 'create', entity: 'expense' })
-      if (event.key.toLowerCase() === 'c') setModal({ type: 'create', entity: 'category' })
+      if (permissions.manageOperations && event.key.toLowerCase() === 'i') setModal({ type: 'create', entity: 'income' })
+      if (permissions.manageOperations && event.key.toLowerCase() === 'e') setModal({ type: 'create', entity: 'expense' })
+      if (permissions.manageStructure && event.key.toLowerCase() === 'c') setModal({ type: 'create', entity: 'category' })
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [authed])
+  }, [authed, permissions.manageOperations, permissions.manageStructure])
 
   const handleAuthSubmit = async (event) => {
     event.preventDefault()
@@ -381,6 +516,7 @@ export default function App() {
     }
     await api.login(profile)
     setAuthed(true)
+    await refreshSession()
     navigate(ROUTE_BY_KEY.dashboard, { replace: true })
     addAlert('Вы вошли в систему', 'success')
   }
@@ -389,12 +525,21 @@ export default function App() {
     await guard('auth', async () => {
       await api.logout()
       setAuthed(false)
+      setCurrentUser(null)
       navigate('/', { replace: true })
     })
   }
 
   const handleCreate = async (event) => {
     event.preventDefault()
+    if (!permissions.manageOperations && (event.target.entity.value === 'income' || event.target.entity.value === 'expense')) {
+      addAlert('Недостаточно прав для создания операций', 'danger')
+      return
+    }
+    if (!permissions.manageStructure && event.target.entity.value === 'category') {
+      addAlert('Недостаточно прав для создания статей', 'danger')
+      return
+    }
     const entity = event.target.entity.value
 
     if (entity === 'category') {
@@ -446,6 +591,10 @@ export default function App() {
 
   const handleUpdateCategory = async (event) => {
     event.preventDefault()
+    if (!permissions.manageStructure) {
+      addAlert('Недостаточно прав для изменения статей', 'danger')
+      return
+    }
     const id = Number(event.target.category_id.value)
     await guard('categories', async () => {
       await api.updateCategory(id, {
@@ -462,6 +611,10 @@ export default function App() {
 
   const handleUpdateIncome = async (event) => {
     event.preventDefault()
+    if (!permissions.manageOperations) {
+      addAlert('Недостаточно прав для изменения операций', 'danger')
+      return
+    }
     const id = Number(event.target.income_id.value)
     const department_id = await ensureDirectoryId('departments', event.target.department_name?.value)
     const project_id = await ensureDirectoryId('projects', event.target.project_name?.value)
@@ -492,6 +645,10 @@ export default function App() {
 
   const handleUpdateExpense = async (event) => {
     event.preventDefault()
+    if (!permissions.manageOperations) {
+      addAlert('Недостаточно прав для изменения операций', 'danger')
+      return
+    }
     const id = Number(event.target.expense_id.value)
     const department_id = await ensureDirectoryId('departments', event.target.department_name?.value)
     const project_id = await ensureDirectoryId('projects', event.target.project_name?.value)
@@ -539,6 +696,10 @@ export default function App() {
   }
 
   const createDirectory = (kind, name) => guard('directories', async () => {
+    if (!permissions.manageStructure) {
+      addAlert('Недостаточно прав для изменения справочников', 'danger')
+      return
+    }
     await api.addDirectory(kind, { name })
     await refreshDirectories()
     await refreshAudit()
@@ -569,6 +730,10 @@ export default function App() {
   }
 
   const updateDirectory = (kind, id, name) => guard('directories', async () => {
+    if (!permissions.manageStructure) {
+      addAlert('Недостаточно прав для изменения справочников', 'danger')
+      return
+    }
     await api.updateDirectory(kind, id, { name })
     await refreshDirectories()
     await refreshAudit()
@@ -576,6 +741,10 @@ export default function App() {
   })
 
   const deleteDirectory = (kind, id) => guard('directories', async () => {
+    if (!permissions.deleteStructure) {
+      addAlert('Недостаточно прав для удаления', 'danger')
+      return
+    }
     const confirmed = await askDeleteConfirm('Удалить элемент справочника?')
     if (!confirmed) return
     try {
@@ -600,6 +769,10 @@ export default function App() {
   })
 
   const importCsv = async (kind, file) => {
+    if (!permissions.viewSystem) {
+      addAlert('Недостаточно прав для импорта', 'danger')
+      return
+    }
     await guard('import', async () => {
       await api.importData(kind, file)
       await refreshAll()
@@ -608,6 +781,10 @@ export default function App() {
   }
 
   const exportCsv = async (kind) => {
+    if (!permissions.viewSystem) {
+      addAlert('Недостаточно прав для экспорта', 'danger')
+      return
+    }
     await guard('export', async () => {
       const blob = await api.exportData(kind, 'csv')
       const url = URL.createObjectURL(blob)
@@ -621,6 +798,10 @@ export default function App() {
   }
 
   const removeCategory = (id) => guard('categories', async () => {
+    if (!permissions.deleteStructure) {
+      addAlert('Недостаточно прав для удаления', 'danger')
+      return
+    }
     const confirmed = await askDeleteConfirm('Удалить статью P&L?')
     if (!confirmed) return
     await api.deleteCategory(id)
@@ -631,6 +812,10 @@ export default function App() {
   })
 
   const removeIncome = (id) => guard('income', async () => {
+    if (!permissions.deleteOperations) {
+      addAlert('Недостаточно прав для удаления', 'danger')
+      return
+    }
     const confirmed = await askDeleteConfirm('Удалить операцию выручки?')
     if (!confirmed) return
     await api.deleteIncome(id)
@@ -641,6 +826,10 @@ export default function App() {
   })
 
   const removeExpense = (id) => guard('expense', async () => {
+    if (!permissions.deleteOperations) {
+      addAlert('Недостаточно прав для удаления', 'danger')
+      return
+    }
     const confirmed = await askDeleteConfirm('Удалить операцию затрат?')
     if (!confirmed) return
     await api.deleteExpense(id)
@@ -818,6 +1007,9 @@ export default function App() {
     categoryMap,
     directories,
     directoriesMap,
+    canManage: permissions.manageOperations,
+    canDelete: permissions.deleteOperations,
+    onResetFilter: () => setIncomeFilter({ ...defaultOperationFilter, pageSize: incomeFilter.pageSize || 10 }),
     onOpenCreate: () => setModal({ type: 'create', entity: 'income' }),
     onOpenEdit: (item) => setModal({ type: 'income-edit', data: item }),
     onRemove: removeIncome
@@ -832,6 +1024,9 @@ export default function App() {
     categoryMap,
     directories,
     directoriesMap,
+    canManage: permissions.manageOperations,
+    canDelete: permissions.deleteOperations,
+    onResetFilter: () => setExpenseFilter({ ...defaultOperationFilter, pageSize: expenseFilter.pageSize || 10 }),
     onOpenCreate: () => setModal({ type: 'create', entity: 'expense' }),
     onOpenEdit: (item) => setModal({ type: 'expense-edit', data: item }),
     onRemove: removeExpense
@@ -839,6 +1034,7 @@ export default function App() {
 
   const systemView = (
     <SystemHubPage
+      canManage={permissions.viewSystem}
       onExportCsv={exportCsv}
       onImportCsv={importCsv}
       rows={audit}
@@ -869,6 +1065,7 @@ export default function App() {
       <OperationsPage
         activeTab={operationsTab}
         setActiveTab={setOperationsTab}
+        canCreate={permissions.manageOperations}
         incomeProps={incomePageProps}
         expenseProps={expensePageProps}
       />
@@ -881,11 +1078,20 @@ export default function App() {
           setFilter={setCategoryFilter}
           categories={categories}
           meta={categoriesMeta}
+          canManage={permissions.manageStructure}
+          canDelete={permissions.deleteStructure}
           onOpenCreate={() => setModal({ type: 'create', entity: 'category' })}
           onOpenEdit={(item) => setModal({ type: 'category-edit', data: item })}
           onRemove={removeCategory}
         />
-        <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />
+        <DirectoriesPage
+          directories={directories}
+          canManage={permissions.manageStructure}
+          canDelete={permissions.deleteStructure}
+          onCreate={createDirectory}
+          onUpdate={updateDirectory}
+          onDelete={deleteDirectory}
+        />
       </>
     ),
     categories: (
@@ -895,6 +1101,8 @@ export default function App() {
         setFilter={setCategoryFilter}
         categories={categories}
         meta={categoriesMeta}
+        canManage={permissions.manageStructure}
+        canDelete={permissions.deleteStructure}
         onOpenCreate={() => setModal({ type: 'create', entity: 'category' })}
         onOpenEdit={(item) => setModal({ type: 'category-edit', data: item })}
         onRemove={removeCategory}
@@ -902,8 +1110,8 @@ export default function App() {
     ),
     income: <IncomePage {...incomePageProps} />,
     expense: <ExpensePage {...expensePageProps} />,
-    departments: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
-    projects: <DirectoriesPage directories={directories} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
+    departments: <DirectoriesPage directories={directories} canManage={permissions.manageStructure} canDelete={permissions.deleteStructure} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
+    projects: <DirectoriesPage directories={directories} canManage={permissions.manageStructure} canDelete={permissions.deleteStructure} onCreate={createDirectory} onUpdate={updateDirectory} onDelete={deleteDirectory} />,
     analytics: analyticsView,
     analytics_monthly: analyticsView,
     analytics_structure: analyticsView,
@@ -915,6 +1123,35 @@ export default function App() {
     settings: systemView
   }
 
+  const visibleNavGroups = useMemo(() => {
+    const allowedKeys = DEFENSE_MODE
+      ? new Set(DEFENSE_VISIBLE_KEYS)
+      : new Set(['dashboard', 'operations', 'structure', 'analytics'])
+
+    if (!DEFENSE_MODE && permissions.viewSystem) {
+      allowedKeys.add('system')
+    }
+
+    if (DEFENSE_MODE && !permissions.viewSystem) {
+      allowedKeys.delete('system')
+    }
+
+    return NAV_GROUPS
+      .map((group) => ({ ...group, items: group.items.filter((item) => allowedKeys.has(item.key)) }))
+      .filter((group) => group.items.length > 0)
+  }, [permissions.viewSystem])
+
+  const visibleQuickActions = useMemo(() => {
+    let actions = QUICK_ACTIONS
+    if (DEFENSE_MODE) {
+      actions = actions.filter((item) => item.key !== 'category')
+    }
+    if (permissions.manageOperations && permissions.manageStructure) return actions
+    if (permissions.manageOperations) return actions.filter((item) => item.key === 'income' || item.key === 'expense')
+    if (permissions.manageStructure) return actions.filter((item) => item.key === 'category')
+    return []
+  }, [permissions.manageOperations, permissions.manageStructure])
+
   if (!authed) {
     return <AuthPage authMode={authMode} setAuthMode={setAuthMode} profile={profile} setProfile={setProfile} onSubmit={handleAuthSubmit} />
   }
@@ -922,16 +1159,24 @@ export default function App() {
   const createEntity = modal?.entity || 'income'
   const createCategories = createEntity === 'income' ? incomeCategories : expenseCategories
   const pageTitle = NAV_GROUPS.flatMap((group) => group.items).find((item) => item.key === active)?.label || 'Панель'
+  const roleLabelMap = {
+    owner: 'Владелец',
+    manager: 'Управляющий',
+    accountant: 'Бухгалтер',
+    department_head: 'Руководитель подразделения'
+  }
+  const userLabel = currentUser ? `${currentUser.username} • ${roleLabelMap[userRole] || userRole}` : ''
 
   return (
     <div className="layout">
-      <Sidebar navGroups={NAV_GROUPS} active={active} onNavigate={(key) => navigate(ROUTE_BY_KEY[key])} />
+      <Sidebar navGroups={visibleNavGroups} active={active} onNavigate={(key) => navigate(ROUTE_BY_KEY[key])} />
       <div className="main">
         <Topbar
           title={pageTitle}
-          quickActions={QUICK_ACTIONS}
+          quickActions={visibleQuickActions}
           onQuickAction={setModal}
           theme={theme}
+          userLabel={userLabel}
           onToggleTheme={() => {
             const next = theme === 'light' ? 'dark' : 'light'
             setTheme(next)
@@ -949,9 +1194,9 @@ export default function App() {
           <label className="field">
             <span>Тип</span>
             <select name="entity" value={createEntity} onChange={(event) => setModal((prev) => ({ ...prev, entity: event.target.value }))}>
-              <option value="income">Выручка</option>
-              <option value="expense">Затрата</option>
-              <option value="category">Статья P&L</option>
+              {permissions.manageOperations && <option value="income">Выручка</option>}
+              {permissions.manageOperations && <option value="expense">Затрата</option>}
+              {permissions.manageStructure && <option value="category">Статья P&L</option>}
             </select>
           </label>
           {createEntity === 'category' ? (
@@ -1023,4 +1268,7 @@ export default function App() {
     </div>
   )
 }
+
+
+
 

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_login import login_required, current_user
 from ..extensions import db
 from ..models import CategoryLimit
+from ..scope import get_scope_user_id
 
 limits_bp = Blueprint("limits", __name__)
 
@@ -9,6 +10,7 @@ limits_bp = Blueprint("limits", __name__)
 @limits_bp.route("", methods=["POST"])
 @login_required
 def set_limit():
+    scope_user_id = get_scope_user_id(current_user.id)
     data = request.get_json()
 
     category_id = data.get("category_id")
@@ -18,7 +20,7 @@ def set_limit():
         return jsonify({"message": "category_id and monthly_limit required"}), 400
 
     limit = CategoryLimit.query.filter_by(
-        user_id=current_user.id,
+        user_id=scope_user_id,
         category_id=category_id
     ).first()
 
@@ -26,7 +28,7 @@ def set_limit():
         limit.monthly_limit = monthly_limit
     else:
         limit = CategoryLimit(
-            user_id=current_user.id,
+            user_id=scope_user_id,
             category_id=category_id,
             monthly_limit=monthly_limit
         )
@@ -40,7 +42,8 @@ def set_limit():
 @limits_bp.route("", methods=["GET"])
 @login_required
 def get_limits():
-    limits = CategoryLimit.query.filter_by(user_id=current_user.id).all()
+    scope_user_id = get_scope_user_id(current_user.id)
+    limits = CategoryLimit.query.filter_by(user_id=scope_user_id).all()
 
     result = [
         {
